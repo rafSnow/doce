@@ -1,0 +1,405 @@
+import customtkinter as ctk
+import tkinter as tk
+from tkinter import ttk, messagebox
+from app.models.insumo import Insumo
+from app.services.insumo_service import InsumoService
+
+class InsumosView(ctk.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        self.service = InsumoService()
+        self.current_insumo_id = None
+
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        # === Header ===
+        header_frame = ctk.CTkFrame(self)
+        header_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        
+        self.title_label = ctk.CTkLabel(header_frame, text="Gerenciamento de Insumos", font=("Roboto", 20, "bold"))
+        self.title_label.pack(side="left", padx=10, pady=10)
+        
+        self.btn_novo = ctk.CTkButton(header_frame, text="Novo Insumo", command=self._on_novo)
+        self.btn_novo.pack(side="right", padx=10, pady=10)
+
+        # === Body (Container) ===
+        self.body_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.body_container.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        
+        self.body_container.grid_columnconfigure(0, weight=1)
+        self.body_container.grid_rowconfigure(0, weight=1)
+        
+        self.view_lista = ctk.CTkFrame(self.body_container, fg_color="transparent")
+        self.view_form = ctk.CTkFrame(self.body_container, fg_color="transparent")
+        
+        self._build_table()
+        self._build_form_sidebar()
+        
+        self._show_lista()
+        self._carregar_dados()
+
+    def _show_lista(self):
+        self.view_form.grid_forget()
+        self.view_lista.grid(row=0, column=0, sticky="nsew")
+        self.btn_novo.configure(state="normal")
+        self.title_label.configure(text="Gerenciamento de Insumos")
+
+    def _show_form(self, editando=False):
+        self.view_lista.grid_forget()
+        self.view_form.grid(row=0, column=0, sticky="nsew")
+        self.btn_novo.configure(state="disabled")
+        self.title_label.configure(text="Editar Insumo" if editando else "Novo Insumo")
+
+    def _parse_float_campo(self, valor: str, campo: str, obrigatorio: bool = True, minimo: float | None = None) -> float:
+        numero_txt = self._normalizar_numero_para_float(valor)
+        if not numero_txt:
+            if obrigatorio:
+                raise ValueError(f"O campo {campo} é obrigatório.")
+            return 0.0
+
+        try:
+            numero = float(numero_txt)
+        except ValueError as exc:
+            raise ValueError(f"O campo {campo} deve ser numérico.") from exc
+
+        if minimo is not None and numero < minimo:
+            raise ValueError(f"O campo {campo} não pode ser menor que {minimo}.")
+        return numero
+
+    def _normalizar_numero_para_float(self, valor: str) -> str:
+        numero_txt = valor.strip().replace(" ", "")
+        if not numero_txt:
+            return ""
+        if "," in numero_txt:
+            return numero_txt.replace(".", "").replace(",", ".")
+        return numero_txt
+
+    def _formatar_numero_br(self, valor: float, casas: int = 2) -> str:
+        base = f"{valor:,.{casas}f}"
+        return base.replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _aplicar_mascara_decimal(self, event):
+        entry = event.widget
+        raw = entry.get().replace(".", ",")
+        resultado = []
+        tem_virgula = False
+        for ch in raw:
+            if ch.isdigit():
+                resultado.append(ch)
+            elif ch == "," and not tem_virgula:
+                resultado.append(ch)
+                tem_virgula = True
+        sanitizado = "".join(resultado)
+        if "," in sanitizado:
+            inteiro, decimal = sanitizado.split(",", 1)
+            sanitizado = f"{inteiro},{decimal[:4]}"
+        entry.delete(0, "end")
+        entry.insert(0, sanitizado)
+
+    def _aplicar_mascara_moeda(self, event):
+        entry = event.widget
+        bruto = entry.get()
+        digitos = "".join(ch for ch in bruto if ch.isdigit())
+        tem_virgula = "," in bruto
+        if not digitos:
+            sanitizado = ""
+        else:
+            if tem_virgula:
+                parte_int, parte_dec = bruto.split(",", 1)
+                int_digits = "".join(ch for ch in parte_int if ch.isdigit()) or "0"
+                dec_all = "".join(ch for ch in parte_dec if ch.isdigit())
+
+                # Permite digitação contínua no final: 1,000 -> 10,00 -> 100,00
+                if len(dec_all) > 2:
+                    int_digits = int_digits + dec_all[:-2]
+                    dec_digits = dec_all[-2:]
+                else:
+                    dec_digits = dec_all.ljust(2, "0")
+            else:
+                int_digits = digitos
+                dec_digits = "00"
+
+            int_norm = str(int(int_digits))
+            grupos = []
+            while int_norm:
+                grupos.insert(0, int_norm[-3:])
+                int_norm = int_norm[:-3]
+            sanitizado = f"{'.'.join(grupos)},{dec_digits}"
+        entry.delete(0, "end")
+        entry.insert(0, sanitizado)
+
+    def _build_table(self):
+        self.view_lista.grid_columnconfigure(0, weight=1)
+        self.view_lista.grid_rowconfigure(1, weight=1)
+        
+        # Filtros
+        filter_frame = ctk.CTkFrame(self.view_lista)
+        filter_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        
+        self.entry_busca = ctk.CTkEntry(filter_frame, placeholder_text="Buscar por nome...", width=300)
+        self.entry_busca.pack(side="left", padx=10)
+        self.entry_busca.bind("<KeyRelease>", lambda e: self._carregar_dados())
+        
+        self.combo_categoria_filtro = ctk.CTkComboBox(filter_frame, values=["Todos", "Ingrediente", "Embalagem", "Gás"], 
+                                                      command=lambda e: self._carregar_dados())
+        self.combo_categoria_filtro.pack(side="left", padx=10)
+
+        table_frame = ctk.CTkFrame(self.view_lista)
+        table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        # Estilo para o Treeview se adequar ao CustomTkinter (modo Dark default na nossa config por enquanto)
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview", background="#2b2b2b", foreground="white", rowheight=25, fieldbackground="#2b2b2b", borderwidth=0)
+        style.map('Treeview', background=[('selected', '#1f538d')])
+        style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat")
+        style.map("Treeview.Heading", background=[('active', '#3b3b3b')])
+
+        columns = ("id", "nome", "categoria", "peso", "preco", "custo", "qtd")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", style="Treeview")
+        
+        self.tree.heading("id", text="ID")
+        self.tree.heading("nome", text="Nome")
+        self.tree.heading("categoria", text="Categoria")
+        self.tree.heading("peso", text="Peso/Vol")
+        self.tree.heading("preco", text="Preço (R$)")
+        self.tree.heading("custo", text="Custo/Un (R$)")
+        self.tree.heading("qtd", text="Qtd Disp.")
+        
+        self.tree.column("id", width=40, anchor="center")
+        self.tree.column("nome", width=150, anchor="w")
+        self.tree.column("categoria", width=100, anchor="center")
+        self.tree.column("peso", width=80, anchor="center")
+        self.tree.column("preco", width=80, anchor="center")
+        self.tree.column("custo", width=90, anchor="center")
+        self.tree.column("qtd", width=80, anchor="center")
+
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.pack(fill="both", expand=True, side="left")
+        scrollbar.pack(fill="y", side="right")
+
+        # Menu de contexto para editar/excluir
+        self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        
+        self.context_menu = tk.Menu(self, tearoff=0, bg="#2b2b2b", fg="white")
+        self.context_menu.add_command(label="Editar", command=self._on_editar_selecionado)
+        self.context_menu.add_command(label="Excluir", command=self._on_excluir_selecionado)
+
+    def _build_form_sidebar(self):
+        self.form_frame = ctk.CTkFrame(self.view_form)
+        self.form_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        inner_form = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        inner_form.pack(expand=True, padx=20, pady=20)
+        inner_form.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(inner_form, text="Nome").grid(row=0, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.entry_nome = ctk.CTkEntry(inner_form, width=300, placeholder_text="Texto")
+        self.entry_nome.grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(inner_form, text="Categoria").grid(row=2, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.combo_categoria = ctk.CTkComboBox(inner_form, values=["Ingrediente", "Embalagem", "Gás"], width=300)
+        self.combo_categoria.grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(inner_form, text="Peso/Volume Total").grid(row=4, column=0, padx=10, pady=(5, 2), sticky="w")
+        ctk.CTkLabel(inner_form, text="Unidade").grid(row=4, column=1, padx=10, pady=(5, 2), sticky="w")
+        self.entry_peso = ctk.CTkEntry(inner_form, placeholder_text="Numero")
+        self.entry_peso.grid(row=5, column=0, padx=10, pady=(0, 8), sticky="ew")
+        self.combo_medida = ctk.CTkComboBox(inner_form, values=["g", "ml", "unidade"], width=120)
+        self.combo_medida.grid(row=5, column=1, padx=10, pady=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(inner_form, text="Preco de Compra (R$)").grid(row=6, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.entry_preco = ctk.CTkEntry(inner_form, width=300, placeholder_text="0,00")
+        self.entry_preco.grid(row=7, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+        
+        self.lbl_custo_calc = ctk.CTkLabel(inner_form, text="Custo/Un: R$ 0.00", text_color="#A66850")
+        self.lbl_custo_calc.grid(row=8, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+        
+        # binds para atualizar o custo_calc
+        self.entry_peso.bind("<KeyRelease>", lambda e: (self._aplicar_mascara_decimal(e), self._atualizar_custo_label()))
+        self.entry_preco.bind("<KeyRelease>", self._atualizar_custo_label)
+
+        ctk.CTkLabel(inner_form, text="Quantidade Disponivel").grid(row=9, column=0, padx=10, pady=(5, 2), sticky="w")
+        ctk.CTkLabel(inner_form, text="Quantidade Minima").grid(row=9, column=1, padx=10, pady=(5, 2), sticky="w")
+        self.entry_qtd = ctk.CTkEntry(inner_form, placeholder_text="Numero")
+        self.entry_qtd.grid(row=10, column=0, padx=10, pady=(0, 8), sticky="ew")
+        self.entry_qtd.bind("<KeyRelease>", self._aplicar_mascara_decimal)
+        self.entry_qtd_min = ctk.CTkEntry(inner_form, placeholder_text="Numero")
+        self.entry_qtd_min.grid(row=10, column=1, padx=10, pady=(0, 8), sticky="ew")
+        self.entry_qtd_min.bind("<KeyRelease>", self._aplicar_mascara_decimal)
+
+        # Botoões
+        frame_btns = ctk.CTkFrame(inner_form, fg_color="transparent")
+        frame_btns.grid(row=11, column=0, columnspan=2, padx=10, pady=20, sticky="e")
+        
+        self.btn_salvar = ctk.CTkButton(frame_btns, text="Salvar", command=self._on_salvar)
+        self.btn_salvar.pack(side="right", padx=5)
+        
+        self.btn_excluir = ctk.CTkButton(frame_btns, text="Excluir", fg_color="#c93434", hover_color="#942626", command=self._excluir_form)
+        self.btn_excluir.pack(side="right", padx=5)
+        self.btn_excluir.configure(state="disabled")
+        
+        self.btn_cancelar = ctk.CTkButton(frame_btns, text="Cancelar", fg_color="gray", hover_color="#555555", command=self._ocultar_form)
+        self.btn_cancelar.pack(side="right", padx=5)
+
+    def _atualizar_custo_label(self, event=None):
+        try:
+            peso_txt = self._normalizar_numero_para_float(self.entry_peso.get())
+            preco_txt = self._normalizar_numero_para_float(self.entry_preco.get())
+            peso = float(peso_txt) if peso_txt else 0.0
+            preco = float(preco_txt) if preco_txt else 0.0
+            if peso > 0:
+                custo = preco / peso
+                self.lbl_custo_calc.configure(text=f"Custo/Un: R$ {custo:.4f}")
+            else:
+                self.lbl_custo_calc.configure(text="Custo/Un: R$ 0.00")
+        except ValueError:
+            self.lbl_custo_calc.configure(text="Custo/Un: Valores inválidos")
+
+    def _carregar_dados(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        nome_busca = self.entry_busca.get()
+        categoria_busca = self.combo_categoria_filtro.get()
+
+        insumos = self.service.listar(nome=nome_busca, categoria=categoria_busca)
+        
+        for insumo in insumos:
+            self.tree.insert("", "end", values=(
+                insumo.id,
+                insumo.nome,
+                insumo.categoria,
+                f"{insumo.peso_volume_total} {insumo.unidade_medida}",
+                self._formatar_numero_br(insumo.preco_compra, 2),
+                self._formatar_numero_br(insumo.custo_por_unidade, 4),
+                insumo.quantidade_disponivel
+            ))
+
+    def _on_novo(self):
+        self.current_insumo_id = None
+        self.entry_nome.delete(0, 'end')
+        self.combo_categoria.set("Ingrediente")
+        self.entry_peso.delete(0, 'end')
+        self.combo_medida.set("g")
+        self.entry_preco.delete(0, 'end')
+        self.entry_qtd.delete(0, 'end')
+        self.entry_qtd.insert(0, "0")
+        self.entry_qtd_min.delete(0, 'end')
+        self.entry_qtd_min.insert(0, "0")
+        self.lbl_custo_calc.configure(text="Custo/Un: R$ 0.00")
+        self.btn_excluir.configure(state="disabled")
+        
+        self._show_form(editando=False)
+
+    def _ocultar_form(self):
+        self._show_lista()
+
+    def _show_context_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        if item:
+            self.tree.selection_set(item)
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+
+    def _on_double_click(self, event):
+        item = self.tree.identify_row(event.y)
+        if item:
+            self._on_editar_selecionado()
+
+    def _on_editar_selecionado(self):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item_id = self.tree.item(selected[0])['values'][0]
+        insumo = self.service.get_by_id(item_id)
+        if insumo:
+            self.current_insumo_id = insumo.id
+            self.entry_nome.delete(0, 'end')
+            self.entry_nome.insert(0, insumo.nome)
+            self.combo_categoria.set(insumo.categoria)
+            self.entry_peso.delete(0, 'end')
+            self.entry_peso.insert(0, str(insumo.peso_volume_total))
+            self.combo_medida.set(insumo.unidade_medida)
+            self.entry_preco.delete(0, 'end')
+            self.entry_preco.insert(0, self._formatar_numero_br(insumo.preco_compra, 2))
+            
+            self.entry_qtd.delete(0, 'end')
+            self.entry_qtd.insert(0, str(insumo.quantidade_disponivel))
+            self.entry_qtd_min.delete(0, 'end')
+            self.entry_qtd_min.insert(0, str(insumo.quantidade_minima))
+            
+            self._atualizar_custo_label()
+            self.btn_excluir.configure(state="normal")
+            self._show_form(editando=True)
+
+    def _excluir_form(self):
+        if self.current_insumo_id:
+            nome = self.entry_nome.get()
+            resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o insumo '{nome}'?")
+            if resp:
+                self.service.excluir(self.current_insumo_id)
+                self._carregar_dados()
+                self._ocultar_form()
+
+    def _on_excluir_selecionado(self):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item_id = self.tree.item(selected[0])['values'][0]
+        nome = self.tree.item(selected[0])['values'][1]
+        
+        resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o insumo '{nome}'?")
+        if resp:
+            self.service.excluir(item_id)
+            self._carregar_dados()
+            if self.current_insumo_id == item_id:
+                self._ocultar_form()
+
+    def _on_salvar(self):
+        try:
+            nome = self.entry_nome.get().strip()
+            categoria = self.combo_categoria.get().strip()
+            medida = self.combo_medida.get().strip()
+
+            if not nome:
+                messagebox.showerror("Erro", "Nome é obrigatório.")
+                return
+
+            if categoria not in ["Ingrediente", "Embalagem", "Gás"]:
+                messagebox.showerror("Erro", "Categoria inválida.")
+                return
+
+            if medida not in ["g", "ml", "unidade"]:
+                messagebox.showerror("Erro", "Unidade de medida inválida.")
+                return
+
+            peso = self._parse_float_campo(self.entry_peso.get(), "Peso/Volume Total", minimo=0.000001)
+            preco = self._parse_float_campo(self.entry_preco.get(), "Preço de Compra", minimo=0.0)
+            qtd = self._parse_float_campo(self.entry_qtd.get(), "Quantidade Disponível", obrigatorio=False, minimo=0.0)
+            qtd_min = self._parse_float_campo(self.entry_qtd_min.get(), "Quantidade Mínima", obrigatorio=False, minimo=0.0)
+
+            if qtd_min > qtd:
+                messagebox.showerror("Erro", "Quantidade mínima não pode ser maior que quantidade disponível.")
+                return
+
+            insumo = Insumo(
+                id=self.current_insumo_id,
+                nome=nome,
+                categoria=categoria,
+                peso_volume_total=peso,
+                unidade_medida=medida,
+                preco_compra=preco,
+                quantidade_disponivel=qtd,
+                quantidade_minima=qtd_min
+            )
+            
+            self.service.salvar(insumo)
+            self._ocultar_form()
+            self._carregar_dados()
+            
+        except ValueError as e:
+            messagebox.showerror("Erro", str(e))
