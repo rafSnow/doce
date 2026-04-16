@@ -9,39 +9,94 @@ from app.models.insumo import Insumo
 from app.services.insumo_service import InsumoService
 from app.views.historico_preco_insumo_view import HistoricoPrecoInsumoView
 
+
+# ── Paleta alinhada ao Dashboard ──────────────────────────────────────────────
+BG_DEEP = "#12100E"
+CARD_BG = "#1E1814"
+CARD_BORDER = "#2E2218"
+HEADER_BG = "#171310"
+
+ACCENT = "#C8866B"
+TEXT_PRIMARY = "#F0E0D0"
+TEXT_SECONDARY = "#A08070"
+TEXT_MUTED = "#5A4A40"
+
+
 class InsumosView(ctk.CTkFrame):
     def __init__(self, master, on_estoque_alerta_change: Optional[Callable[[int], None]] = None):
-        super().__init__(master, fg_color="transparent")
+        super().__init__(master, fg_color=BG_DEEP)
         self.service = InsumoService()
         self.current_insumo_id = None
         self.on_estoque_alerta_change = on_estoque_alerta_change
 
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
-        
-        # === Header ===
-        header_frame = ctk.CTkFrame(self)
-        header_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        
-        self.title_label = ctk.CTkLabel(header_frame, text="Gerenciamento de Insumos", font=("Roboto", 20, "bold"))
-        self.title_label.pack(side="left", padx=10, pady=10)
 
-        self.btn_exportar = ctk.CTkButton(header_frame, text="Exportar Excel", command=self._on_exportar_excel)
-        self.btn_exportar.pack(side="right", padx=(0, 10), pady=10)
+        # === Header (padrão dashboard) ===
+        header_frame = ctk.CTkFrame(self, fg_color=HEADER_BG, corner_radius=0, height=56)
+        header_frame.grid(row=0, column=0, sticky="ew", pady=(10, 0))
+        header_frame.grid_propagate(False)
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        self.title_label = ctk.CTkLabel(
+            header_frame,
+            text="Gerenciamento de Insumos",
+            text_color=TEXT_PRIMARY,
+            font=ctk.CTkFont(family="Roboto", size=20, weight="bold"),
+        )
+        self.title_label.grid(row=0, column=0, padx=20, sticky="w")
+
+        actions = ctk.CTkFrame(header_frame, fg_color="transparent")
+        actions.grid(row=0, column=1, padx=(6, 16), sticky="e")
+
+        self.btn_novo = ctk.CTkButton(
+            actions,
+            text="+ Novo Insumo",
+            command=self._on_novo,
+            fg_color=ACCENT,
+            hover_color="#A06050",
+            text_color="#FFFFFF",
+            height=30,
+            corner_radius=20,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.btn_novo.grid(row=0, column=0, padx=4)
 
         self.btn_historico_preco = ctk.CTkButton(
-            header_frame,
-            text="Historico de Precos",
+            actions,
+            text="Histórico de Preços",
             command=self._on_historico_preco,
+            fg_color="#241C18",
+            hover_color="#2A201A",
+            border_color=CARD_BORDER,
+            border_width=1,
+            text_color=TEXT_SECONDARY,
+            height=30,
+            corner_radius=20,
+            font=ctk.CTkFont(size=12),
         )
-        self.btn_historico_preco.pack(side="right", padx=(0, 10), pady=10)
-        
-        self.btn_novo = ctk.CTkButton(header_frame, text="Novo Insumo", command=self._on_novo)
-        self.btn_novo.pack(side="right", padx=10, pady=10)
+        self.btn_historico_preco.grid(row=0, column=1, padx=4)
+
+        self.btn_exportar = ctk.CTkButton(
+            actions,
+            text="Exportar Excel",
+            command=self._on_exportar_excel,
+            fg_color="#241C18",
+            hover_color="#2A201A",
+            border_color=CARD_BORDER,
+            border_width=1,
+            text_color=TEXT_SECONDARY,
+            height=30,
+            corner_radius=20,
+            font=ctk.CTkFont(size=12),
+        )
+        self.btn_exportar.grid(row=0, column=2, padx=4)
+
+        ctk.CTkFrame(self, fg_color=CARD_BORDER, height=1).grid(row=1, column=0, sticky="ew")
 
         # === Body (Container) ===
         self.body_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.body_container.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.body_container.grid(row=2, column=0, padx=14, pady=(10, 12), sticky="nsew")
         
         self.body_container.grid_columnconfigure(0, weight=1)
         self.body_container.grid_rowconfigure(0, weight=1)
@@ -148,32 +203,84 @@ class InsumosView(ctk.CTkFrame):
     def _build_table(self):
         self.view_lista.grid_columnconfigure(0, weight=1)
         self.view_lista.grid_rowconfigure(1, weight=1)
-        
+
         # Filtros
-        filter_frame = ctk.CTkFrame(self.view_lista)
+        filter_frame = ctk.CTkFrame(
+            self.view_lista,
+            fg_color=CARD_BG,
+            corner_radius=12,
+            border_width=1,
+            border_color=CARD_BORDER,
+        )
         filter_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        
-        self.entry_busca = ctk.CTkEntry(filter_frame, placeholder_text="Buscar por nome...", width=300)
+
+        ctk.CTkLabel(
+            filter_frame,
+            text="Filtros",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).pack(side="left", padx=(12, 6), pady=10)
+
+        self.entry_busca = ctk.CTkEntry(
+            filter_frame,
+            placeholder_text="Buscar por nome...",
+            width=320,
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
         self.entry_busca.pack(side="left", padx=10)
         self.entry_busca.bind("<KeyRelease>", lambda e: self._carregar_dados())
-        
-        self.combo_categoria_filtro = ctk.CTkComboBox(filter_frame, values=["Todos", "Ingrediente", "Embalagem", "Gás"], 
-                                                      command=lambda e: self._carregar_dados())
-        self.combo_categoria_filtro.pack(side="left", padx=10)
 
-        table_frame = ctk.CTkFrame(self.view_lista)
+        self.combo_categoria_filtro = ctk.CTkComboBox(
+            filter_frame,
+            values=["Todos", "Ingrediente", "Embalagem", "Gás"],
+            command=lambda e: self._carregar_dados(),
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            button_color="#2A201A",
+            button_hover_color="#2E2218",
+            text_color=TEXT_PRIMARY,
+            dropdown_fg_color=CARD_BG,
+            dropdown_text_color=TEXT_PRIMARY,
+            dropdown_hover_color="#2A201A",
+            width=180,
+        )
+        self.combo_categoria_filtro.pack(side="left", padx=10)
+        self.combo_categoria_filtro.set("Todos")
+
+        table_frame = ctk.CTkFrame(
+            self.view_lista,
+            fg_color=CARD_BG,
+            corner_radius=12,
+            border_width=1,
+            border_color=CARD_BORDER,
+        )
         table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
-        # Estilo para o Treeview se adequar ao CustomTkinter (modo Dark default na nossa config por enquanto)
+        # Estilo para o Treeview alinhado ao novo padrão visual.
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Treeview", background="#2b2b2b", foreground="white", rowheight=25, fieldbackground="#2b2b2b", borderwidth=0)
-        style.map('Treeview', background=[('selected', '#1f538d')])
-        style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat")
-        style.map("Treeview.Heading", background=[('active', '#3b3b3b')])
+        style.configure(
+            "Insumos.Treeview",
+            background="#1A1512",
+            foreground=TEXT_PRIMARY,
+            rowheight=27,
+            fieldbackground="#1A1512",
+            borderwidth=0,
+        )
+        style.map("Insumos.Treeview", background=[("selected", "#3A2A20")])
+        style.configure(
+            "Insumos.Treeview.Heading",
+            background="#241C18",
+            foreground=TEXT_SECONDARY,
+            relief="flat",
+            font=("Roboto", 10, "bold"),
+        )
+        style.map("Insumos.Treeview.Heading", background=[("active", "#2A201A")])
 
         columns = ("id", "nome", "categoria", "peso", "preco", "custo", "qtd")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", style="Treeview")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", style="Insumos.Treeview")
         
         self.tree.heading("id", text="ID")
         self.tree.heading("nome", text="Nome")
@@ -192,8 +299,8 @@ class InsumosView(ctk.CTkFrame):
         self.tree.column("qtd", width=80, anchor="center")
 
         # Sprint 6.2: indicação visual de estoque abaixo do mínimo.
-        self.tree.tag_configure("estoque_alerta", background="#6A4E00", foreground="white")
-        self.tree.tag_configure("estoque_critico", background="#7A1E1E", foreground="white")
+        self.tree.tag_configure("estoque_alerta", background="#5B4114", foreground="#FCE8BF")
+        self.tree.tag_configure("estoque_critico", background="#5A1E1E", foreground="#FFD4D4")
 
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -210,60 +317,160 @@ class InsumosView(ctk.CTkFrame):
         self.context_menu.add_command(label="Excluir", command=self._on_excluir_selecionado)
 
     def _build_form_sidebar(self):
-        self.form_frame = ctk.CTkFrame(self.view_form)
+        self.form_frame = ctk.CTkFrame(
+            self.view_form,
+            fg_color=CARD_BG,
+            corner_radius=12,
+            border_width=1,
+            border_color=CARD_BORDER,
+        )
         self.form_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         inner_form = ctk.CTkFrame(self.form_frame, fg_color="transparent")
         inner_form.pack(expand=True, padx=20, pady=20)
         inner_form.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            inner_form,
+            text="Dados do Insumo",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="w")
         
-        ctk.CTkLabel(inner_form, text="Nome").grid(row=0, column=0, padx=10, pady=(5, 2), sticky="w")
-        self.entry_nome = ctk.CTkEntry(inner_form, width=300, placeholder_text="Texto")
-        self.entry_nome.grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+        ctk.CTkLabel(inner_form, text="Nome", text_color=TEXT_SECONDARY).grid(row=1, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.entry_nome = ctk.CTkEntry(
+            inner_form,
+            width=300,
+            placeholder_text="Texto",
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
+        self.entry_nome.grid(row=2, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
 
-        ctk.CTkLabel(inner_form, text="Categoria").grid(row=2, column=0, padx=10, pady=(5, 2), sticky="w")
-        self.combo_categoria = ctk.CTkComboBox(inner_form, values=["Ingrediente", "Embalagem", "Gás"], width=300)
-        self.combo_categoria.grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+        ctk.CTkLabel(inner_form, text="Categoria", text_color=TEXT_SECONDARY).grid(row=3, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.combo_categoria = ctk.CTkComboBox(
+            inner_form,
+            values=["Ingrediente", "Embalagem", "Gás"],
+            width=300,
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            button_color="#2A201A",
+            button_hover_color="#2E2218",
+            text_color=TEXT_PRIMARY,
+            dropdown_fg_color=CARD_BG,
+            dropdown_text_color=TEXT_PRIMARY,
+            dropdown_hover_color="#2A201A",
+        )
+        self.combo_categoria.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
 
-        ctk.CTkLabel(inner_form, text="Peso/Volume Total").grid(row=4, column=0, padx=10, pady=(5, 2), sticky="w")
-        ctk.CTkLabel(inner_form, text="Unidade").grid(row=4, column=1, padx=10, pady=(5, 2), sticky="w")
-        self.entry_peso = ctk.CTkEntry(inner_form, placeholder_text="Numero")
-        self.entry_peso.grid(row=5, column=0, padx=10, pady=(0, 8), sticky="ew")
-        self.combo_medida = ctk.CTkComboBox(inner_form, values=["g", "ml", "unidade"], width=120)
-        self.combo_medida.grid(row=5, column=1, padx=10, pady=(0, 8), sticky="ew")
+        ctk.CTkLabel(inner_form, text="Peso/Volume Total", text_color=TEXT_SECONDARY).grid(row=5, column=0, padx=10, pady=(5, 2), sticky="w")
+        ctk.CTkLabel(inner_form, text="Unidade", text_color=TEXT_SECONDARY).grid(row=5, column=1, padx=10, pady=(5, 2), sticky="w")
+        self.entry_peso = ctk.CTkEntry(
+            inner_form,
+            placeholder_text="Numero",
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
+        self.entry_peso.grid(row=6, column=0, padx=10, pady=(0, 8), sticky="ew")
+        self.combo_medida = ctk.CTkComboBox(
+            inner_form,
+            values=["g", "ml", "unidade"],
+            width=120,
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            button_color="#2A201A",
+            button_hover_color="#2E2218",
+            text_color=TEXT_PRIMARY,
+            dropdown_fg_color=CARD_BG,
+            dropdown_text_color=TEXT_PRIMARY,
+            dropdown_hover_color="#2A201A",
+        )
+        self.combo_medida.grid(row=6, column=1, padx=10, pady=(0, 8), sticky="ew")
 
-        ctk.CTkLabel(inner_form, text="Preco de Compra (R$)").grid(row=6, column=0, padx=10, pady=(5, 2), sticky="w")
-        self.entry_preco = ctk.CTkEntry(inner_form, width=300, placeholder_text="0,00")
-        self.entry_preco.grid(row=7, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+        ctk.CTkLabel(inner_form, text="Preco de Compra (R$)", text_color=TEXT_SECONDARY).grid(row=7, column=0, padx=10, pady=(5, 2), sticky="w")
+        self.entry_preco = ctk.CTkEntry(
+            inner_form,
+            width=300,
+            placeholder_text="0,00",
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
+        self.entry_preco.grid(row=8, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
         
-        self.lbl_custo_calc = ctk.CTkLabel(inner_form, text="Custo/Un: R$ 0.00", text_color="#A66850")
-        self.lbl_custo_calc.grid(row=8, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+        self.lbl_custo_calc = ctk.CTkLabel(
+            inner_form,
+            text="Custo/Un: R$ 0.00",
+            text_color=ACCENT,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.lbl_custo_calc.grid(row=9, column=0, columnspan=2, padx=10, pady=5, sticky="w")
         
         # binds para atualizar o custo_calc
         self.entry_peso.bind("<KeyRelease>", lambda e: (self._aplicar_mascara_decimal(e), self._atualizar_custo_label()))
         self.entry_preco.bind("<KeyRelease>", self._atualizar_custo_label)
 
-        ctk.CTkLabel(inner_form, text="Quantidade Disponivel").grid(row=9, column=0, padx=10, pady=(5, 2), sticky="w")
-        ctk.CTkLabel(inner_form, text="Quantidade Minima").grid(row=9, column=1, padx=10, pady=(5, 2), sticky="w")
-        self.entry_qtd = ctk.CTkEntry(inner_form, placeholder_text="Numero")
-        self.entry_qtd.grid(row=10, column=0, padx=10, pady=(0, 8), sticky="ew")
+        ctk.CTkLabel(inner_form, text="Quantidade Disponivel", text_color=TEXT_SECONDARY).grid(row=10, column=0, padx=10, pady=(5, 2), sticky="w")
+        ctk.CTkLabel(inner_form, text="Quantidade Minima", text_color=TEXT_SECONDARY).grid(row=10, column=1, padx=10, pady=(5, 2), sticky="w")
+        self.entry_qtd = ctk.CTkEntry(
+            inner_form,
+            placeholder_text="Numero",
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
+        self.entry_qtd.grid(row=11, column=0, padx=10, pady=(0, 8), sticky="ew")
         self.entry_qtd.bind("<KeyRelease>", self._aplicar_mascara_decimal)
-        self.entry_qtd_min = ctk.CTkEntry(inner_form, placeholder_text="Numero")
-        self.entry_qtd_min.grid(row=10, column=1, padx=10, pady=(0, 8), sticky="ew")
+        self.entry_qtd_min = ctk.CTkEntry(
+            inner_form,
+            placeholder_text="Numero",
+            fg_color="#241C18",
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+        )
+        self.entry_qtd_min.grid(row=11, column=1, padx=10, pady=(0, 8), sticky="ew")
         self.entry_qtd_min.bind("<KeyRelease>", self._aplicar_mascara_decimal)
 
         # Botoões
         frame_btns = ctk.CTkFrame(inner_form, fg_color="transparent")
-        frame_btns.grid(row=11, column=0, columnspan=2, padx=10, pady=20, sticky="e")
+        frame_btns.grid(row=12, column=0, columnspan=2, padx=10, pady=20, sticky="e")
         
-        self.btn_salvar = ctk.CTkButton(frame_btns, text="Salvar", command=self._on_salvar)
+        self.btn_salvar = ctk.CTkButton(
+            frame_btns,
+            text="Salvar",
+            command=self._on_salvar,
+            fg_color=ACCENT,
+            hover_color="#A06050",
+            text_color="#FFFFFF",
+            corner_radius=10,
+        )
         self.btn_salvar.pack(side="right", padx=5)
         
-        self.btn_excluir = ctk.CTkButton(frame_btns, text="Excluir", fg_color="#c93434", hover_color="#942626", command=self._excluir_form)
+        self.btn_excluir = ctk.CTkButton(
+            frame_btns,
+            text="Excluir",
+            fg_color="#7A2A2A",
+            hover_color="#5C1F1F",
+            text_color="#FFD4D4",
+            corner_radius=10,
+            command=self._excluir_form,
+        )
         self.btn_excluir.pack(side="right", padx=5)
         self.btn_excluir.configure(state="disabled")
         
-        self.btn_cancelar = ctk.CTkButton(frame_btns, text="Cancelar", fg_color="gray", hover_color="#555555", command=self._ocultar_form)
+        self.btn_cancelar = ctk.CTkButton(
+            frame_btns,
+            text="Cancelar",
+            fg_color="#2A201A",
+            hover_color="#35271E",
+            border_color=CARD_BORDER,
+            border_width=1,
+            text_color=TEXT_SECONDARY,
+            corner_radius=10,
+            command=self._ocultar_form,
+        )
         self.btn_cancelar.pack(side="right", padx=5)
 
     def _atualizar_custo_label(self, event=None):

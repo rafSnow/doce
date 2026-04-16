@@ -233,7 +233,7 @@ class DashboardView(ctk.CTkFrame):
     # ── Topbar ────────────────────────────────────────────────────────────
     def _build_topbar(self):
         bar = ctk.CTkFrame(self, fg_color=HEADER_BG, corner_radius=0, height=56)
-        bar.grid(row=0, column=0, sticky="ew")
+        bar.grid(row=0, column=0, sticky="ew", pady=(10, 0))
         bar.grid_propagate(False)
         bar.grid_columnconfigure(1, weight=1)
 
