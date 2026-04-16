@@ -1,12 +1,18 @@
 import customtkinter as ctk
-from tkinter import ttk, messagebox
+import os
+from pathlib import Path
+from tkinter import ttk, messagebox, filedialog
 from typing import List
 from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from app.models.pedido import Pedido
 from app.models.pedido_item import PedidoItem
+from app.services.configuracao_service import ConfiguracaoService
 from app.services.pedido_service import PedidoService
 from app.services.produto_service import ProdutoService
+from app.services.recibo_service import ReciboService
 
 class PedidosView(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -14,6 +20,8 @@ class PedidosView(ctk.CTkFrame):
         
         self.pedido_service = PedidoService()
         self.produto_service = ProdutoService()
+        self.recibo_service = ReciboService()
+        self.config_service = ConfiguracaoService()
         self.current_pedido_id = None
         self.current_itens: List[PedidoItem] = []
         
@@ -27,6 +35,18 @@ class PedidosView(ctk.CTkFrame):
         
         self.title_label = ctk.CTkLabel(header_frame, text="Gerenciamento de Pedidos", font=("Roboto", 20, "bold"))
         self.title_label.pack(side="left", padx=10, pady=10)
+
+        self.btn_exportar = ctk.CTkButton(header_frame, text="Exportar Excel", command=self._exportar_excel)
+        self.btn_exportar.pack(side="right", padx=(0, 10), pady=10)
+
+        self.btn_imprimir_recibo = ctk.CTkButton(header_frame, text="Imprimir", command=self._imprimir_recibo)
+        self.btn_imprimir_recibo.pack(side="right", padx=5, pady=10)
+
+        self.btn_salvar_recibo = ctk.CTkButton(header_frame, text="Salvar PDF", command=self._salvar_recibo_pdf)
+        self.btn_salvar_recibo.pack(side="right", padx=5, pady=10)
+
+        self.btn_previsualizar_recibo = ctk.CTkButton(header_frame, text="Pre-visualizar", command=self._previsualizar_recibo)
+        self.btn_previsualizar_recibo.pack(side="right", padx=5, pady=10)
         
         self.btn_novo = ctk.CTkButton(header_frame, text="Novo Pedido", command=self._novo_pedido)
         self.btn_novo.pack(side="right", padx=10, pady=10)
@@ -135,6 +155,120 @@ class PedidosView(ctk.CTkFrame):
 
     def _formatar_moeda_ui(self, valor: float) -> str:
         return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _coletar_pedido_formulario(self) -> Pedido:
+        nome_cliente = self.entry_nome_cliente.get().strip()
+        if not nome_cliente:
+            raise ValueError("Informe o nome do cliente.")
+
+        if not self.current_itens:
+            raise ValueError("Adicione ao menos um item ao pedido.")
+
+        data_pedido = self._validar_data(self.entry_data_pedido.get(), "Data do Pedido", obrigatorio=True)
+        data_entrega = self._validar_data(self.entry_data_entrega.get(), "Data de Entrega")
+        pag_inicial_data = self._validar_data(self.entry_pag_ini_data.get(), "Data do Pagamento Inicial")
+        pag_final_data = self._validar_data(self.entry_pag_fin_data.get(), "Data do Pagamento Final")
+
+        if data_entrega and datetime.strptime(data_entrega, "%d/%m/%Y") < datetime.strptime(data_pedido, "%d/%m/%Y"):
+            raise ValueError("A Data de Entrega não pode ser menor que a Data do Pedido.")
+
+        responsavel = self.entry_responsavel.get().strip()
+        if not responsavel:
+            raise ValueError("O campo Responsável é obrigatório.")
+
+        pag_inicial_valor = self._parse_float_campo(self.entry_pag_ini_valor.get(), "Valor do Pagamento Inicial", minimo=0.0)
+        pag_final_valor = self._parse_float_campo(self.entry_pag_fin_valor.get(), "Valor do Pagamento Final", minimo=0.0)
+
+        pag_ini_forma = self.cb_pag_ini_forma.get().strip()
+        pag_ini_status = self.cb_pag_ini_status.get().strip()
+        pag_fin_forma = self.cb_pag_fin_forma.get().strip()
+        pag_fin_status = self.cb_pag_fin_status.get().strip()
+
+        if not pag_ini_forma or not pag_ini_status or not pag_fin_forma or not pag_fin_status:
+            raise ValueError("Preencha forma e status dos pagamentos.")
+
+        pedido = Pedido(
+            id=self.current_pedido_id,
+            cliente_nome=nome_cliente,
+            data_pedido=data_pedido,
+            data_entrega=data_entrega,
+            valor_total=0.0,
+            pag_inicial_valor=pag_inicial_valor,
+            pag_inicial_data=pag_inicial_data,
+            pag_inicial_forma=pag_ini_forma,
+            pag_inicial_status=pag_ini_status,
+            pag_final_valor=pag_final_valor,
+            pag_final_data=pag_final_data,
+            pag_final_forma=pag_fin_forma,
+            pag_final_status=pag_fin_status,
+            responsavel=responsavel,
+        )
+        pedido.itens = list(self.current_itens)
+        return pedido
+
+    def _pedido_para_recibo(self) -> Pedido:
+        pedido = self._coletar_pedido_formulario()
+        pedido.id = self.current_pedido_id
+        return pedido
+
+    def _arquivo_recibo_padrao(self) -> str:
+        identificador = self.current_pedido_id if self.current_pedido_id is not None else "previa"
+        nome_arquivo = f"recibo_pedido_{identificador}_{datetime.now():%Y%m%d_%H%M%S}.pdf"
+        return str(Path.cwd() / nome_arquivo)
+
+    def _gerar_pdf_recibo(self, destino: str) -> str:
+        pedido = self._pedido_para_recibo()
+        nome_estabelecimento = self.config_service.get_nome_estabelecimento()
+        return self.recibo_service.gerar_recibo_pdf(pedido, destino, nome_estabelecimento=nome_estabelecimento)
+
+    def _previsualizar_recibo(self):
+        try:
+            caminho_tmp = self.recibo_service.gerar_previsao_recibo(
+                self._pedido_para_recibo(),
+                nome_estabelecimento=self.config_service.get_nome_estabelecimento(),
+            )
+            self.recibo_service.abrir_pdf(caminho_tmp)
+            messagebox.showinfo("Pré-visualização", "O recibo foi gerado e aberto no visualizador padrão.")
+        except Exception as exc:
+            messagebox.showerror("Erro", f"Não foi possível gerar a pré-visualização.\n\n{exc}")
+
+    def _salvar_recibo_pdf(self):
+        try:
+            pedido = self._pedido_para_recibo()
+        except ValueError as exc:
+            messagebox.showerror("Erro", str(exc))
+            return
+
+        caminho_arquivo = filedialog.asksaveasfilename(
+            title="Salvar recibo em PDF",
+            defaultextension=".pdf",
+            filetypes=[("Documento PDF", "*.pdf")],
+            initialfile=f"recibo_pedido_{pedido.id if pedido.id is not None else 'previsao'}.pdf",
+        )
+        if not caminho_arquivo:
+            return
+
+        try:
+            self.recibo_service.gerar_recibo_pdf(
+                pedido,
+                caminho_arquivo,
+                nome_estabelecimento=self.config_service.get_nome_estabelecimento(),
+            )
+            messagebox.showinfo("Sucesso", f"Recibo salvo com sucesso em:\n{caminho_arquivo}")
+        except Exception as exc:
+            messagebox.showerror("Erro", f"Não foi possível salvar o recibo.\n\n{exc}")
+
+    def _imprimir_recibo(self):
+        try:
+            pedido = self._pedido_para_recibo()
+            caminho_tmp = self.recibo_service.gerar_previsao_recibo(
+                pedido,
+                nome_estabelecimento=self.config_service.get_nome_estabelecimento(),
+            )
+            self.recibo_service.imprimir_pdf(caminho_tmp)
+            messagebox.showinfo("Impressão", "O recibo foi enviado para a impressora padrão.")
+        except Exception as exc:
+            messagebox.showerror("Erro", f"Não foi possível imprimir o recibo.\n\n{exc}")
 
     def _validar_data(self, valor: str, campo: str, obrigatorio: bool = False) -> str:
         data_txt = valor.strip()
@@ -366,6 +500,117 @@ class PedidosView(ctk.CTkFrame):
                 f"R$ {self._formatar_moeda_ui(p.valor_total)}", p.responsavel
             ))
 
+    def _exportar_excel(self):
+        cliente = self.filtro_cliente.get().strip()
+        status = self.filtro_status.get().strip() or "Todos"
+        pedidos = self.pedido_service.listar(cliente_nome=cliente, status_pagamento=status)
+
+        if not pedidos:
+            messagebox.showinfo("Exportar Excel", "Não há pedidos para exportar com os filtros atuais.")
+            return
+
+        caminho_arquivo = filedialog.asksaveasfilename(
+            title="Salvar exportação de pedidos",
+            defaultextension=".xlsx",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+            initialfile=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        )
+        if not caminho_arquivo:
+            return
+
+        try:
+            workbook = Workbook()
+            sheet_resumo = workbook.active
+            sheet_resumo.title = "Pedidos"
+
+            cabecalho_resumo = [
+                "ID",
+                "Cliente",
+                "Data Pedido",
+                "Data Entrega",
+                "Valor Total (R$)",
+                "Pag. Inicial",
+                "Status Inicial",
+                "Pag. Final",
+                "Status Final",
+                "Responsável",
+            ]
+            sheet_resumo.append(cabecalho_resumo)
+
+            for celula in sheet_resumo[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="A66850")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            sheet_itens = workbook.create_sheet("Itens Pedido")
+            cabecalho_itens = [
+                "Pedido ID",
+                "Cliente",
+                "Produto ID",
+                "Produto",
+                "Quantidade",
+                "Preço Unit. Snapshot (R$)",
+                "Valor Item (R$)",
+                "Data Pedido",
+                "Status Inicial",
+                "Status Final",
+            ]
+            sheet_itens.append(cabecalho_itens)
+
+            for celula in sheet_itens[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="565b5e")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            for pedido in pedidos:
+                sheet_resumo.append([
+                    pedido.id,
+                    pedido.cliente_nome,
+                    self._normalizar_data_para_ui(pedido.data_pedido or ""),
+                    self._normalizar_data_para_ui(pedido.data_entrega or ""),
+                    pedido.valor_total,
+                    pedido.pag_inicial_valor,
+                    pedido.pag_inicial_status,
+                    pedido.pag_final_valor,
+                    pedido.pag_final_status,
+                    pedido.responsavel,
+                ])
+
+                pedido_detalhado = self.pedido_service.get_by_id(pedido.id)
+                if not pedido_detalhado:
+                    continue
+
+                for item in pedido_detalhado.itens:
+                    sheet_itens.append([
+                        pedido_detalhado.id,
+                        pedido_detalhado.cliente_nome,
+                        item.produto_id,
+                        item.produto_nome or "",
+                        item.quantidade,
+                        item.preco_unitario_snapshot,
+                        item.valor_item,
+                        self._normalizar_data_para_ui(pedido_detalhado.data_pedido or ""),
+                        pedido_detalhado.pag_inicial_status,
+                        pedido_detalhado.pag_final_status,
+                    ])
+
+            for planilha in (sheet_resumo, sheet_itens):
+                larguras = {}
+                for linha in planilha.iter_rows():
+                    for celula in linha:
+                        valor = "" if celula.value is None else str(celula.value)
+                        larguras[celula.column_letter] = max(larguras.get(celula.column_letter, 0), len(valor))
+
+                for coluna, largura in larguras.items():
+                    planilha.column_dimensions[coluna].width = min(largura + 2, 40)
+
+                planilha.freeze_panes = "A2"
+
+            workbook.save(caminho_arquivo)
+            messagebox.showinfo("Exportar Excel", f"Exportação concluída com sucesso.\nArquivo salvo em:\n{caminho_arquivo}")
+        except Exception as exc:
+            messagebox.showerror("Exportar Excel", f"Não foi possível exportar os pedidos.\n\n{exc}")
+
     def _atualizar_lista_itens(self):
         for item in self.tree_itens.get_children():
             self.tree_itens.delete(item)
@@ -509,56 +754,8 @@ class PedidosView(ctk.CTkFrame):
         self._show_form(editando=True)
 
     def _salvar(self):
-        nome_cliente = self.entry_nome_cliente.get().strip()
-        if not nome_cliente:
-            messagebox.showwarning("Aviso", "Informe o nome do cliente.")
-            return
-
-        if not self.current_itens:
-            messagebox.showwarning("Aviso", "Adicione ao menos um item ao pedido.")
-            return
-            
         try:
-            data_pedido = self._validar_data(self.entry_data_pedido.get(), "Data do Pedido", obrigatorio=True)
-            data_entrega = self._validar_data(self.entry_data_entrega.get(), "Data de Entrega")
-            pag_inicial_data = self._validar_data(self.entry_pag_ini_data.get(), "Data do Pagamento Inicial")
-            pag_final_data = self._validar_data(self.entry_pag_fin_data.get(), "Data do Pagamento Final")
-
-            if data_entrega and datetime.strptime(data_entrega, "%d/%m/%Y") < datetime.strptime(data_pedido, "%d/%m/%Y"):
-                raise ValueError("A Data de Entrega não pode ser menor que a Data do Pedido.")
-
-            responsavel = self.entry_responsavel.get().strip()
-            if not responsavel:
-                raise ValueError("O campo Responsável é obrigatório.")
-
-            pag_inicial_valor = self._parse_float_campo(self.entry_pag_ini_valor.get(), "Valor do Pagamento Inicial", minimo=0.0)
-            pag_final_valor = self._parse_float_campo(self.entry_pag_fin_valor.get(), "Valor do Pagamento Final", minimo=0.0)
-
-            pag_ini_forma = self.cb_pag_ini_forma.get().strip()
-            pag_ini_status = self.cb_pag_ini_status.get().strip()
-            pag_fin_forma = self.cb_pag_fin_forma.get().strip()
-            pag_fin_status = self.cb_pag_fin_status.get().strip()
-
-            if not pag_ini_forma or not pag_ini_status or not pag_fin_forma or not pag_fin_status:
-                raise ValueError("Preencha forma e status dos pagamentos.")
-            
-            ped = Pedido(
-                id=self.current_pedido_id,
-                cliente_nome=nome_cliente,
-                data_pedido=data_pedido,
-                data_entrega=data_entrega,
-                valor_total=0.0, # Service recalcula
-                pag_inicial_valor=pag_inicial_valor,
-                pag_inicial_data=pag_inicial_data,
-                pag_inicial_forma=pag_ini_forma,
-                pag_inicial_status=pag_ini_status,
-                pag_final_valor=pag_final_valor,
-                pag_final_data=pag_final_data,
-                pag_final_forma=pag_fin_forma,
-                pag_final_status=pag_fin_status,
-                responsavel=responsavel
-            )
-            ped.itens = self.current_itens
+            ped = self._coletar_pedido_formulario()
             
             self.pedido_service.salvar(ped)
             messagebox.showinfo("Sucesso", "Pedido salvo com sucesso!")
@@ -573,8 +770,12 @@ class PedidosView(ctk.CTkFrame):
     def _excluir(self):
         if not self.current_pedido_id:
             return
-            
-        if messagebox.askyesno("Confirmar", "Tem certeza que deseja excluir este pedido?"):
+
+        mensagem = (
+            f"Confirma a exclusao do pedido ID {self.current_pedido_id}?\n\n"
+            "Esta acao nao pode ser desfeita."
+        )
+        if messagebox.askyesno("Confirmar exclusao", mensagem):
             try:
                 self.pedido_service.excluir(self.current_pedido_id)
                 messagebox.showinfo("Sucesso", "Pedido excluído com sucesso!")

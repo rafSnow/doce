@@ -1,14 +1,20 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+from typing import Callable, Optional
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
 from app.models.insumo import Insumo
 from app.services.insumo_service import InsumoService
+from app.views.historico_preco_insumo_view import HistoricoPrecoInsumoView
 
 class InsumosView(ctk.CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, on_estoque_alerta_change: Optional[Callable[[int], None]] = None):
         super().__init__(master, fg_color="transparent")
         self.service = InsumoService()
         self.current_insumo_id = None
+        self.on_estoque_alerta_change = on_estoque_alerta_change
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -19,6 +25,16 @@ class InsumosView(ctk.CTkFrame):
         
         self.title_label = ctk.CTkLabel(header_frame, text="Gerenciamento de Insumos", font=("Roboto", 20, "bold"))
         self.title_label.pack(side="left", padx=10, pady=10)
+
+        self.btn_exportar = ctk.CTkButton(header_frame, text="Exportar Excel", command=self._on_exportar_excel)
+        self.btn_exportar.pack(side="right", padx=(0, 10), pady=10)
+
+        self.btn_historico_preco = ctk.CTkButton(
+            header_frame,
+            text="Historico de Precos",
+            command=self._on_historico_preco,
+        )
+        self.btn_historico_preco.pack(side="right", padx=(0, 10), pady=10)
         
         self.btn_novo = ctk.CTkButton(header_frame, text="Novo Insumo", command=self._on_novo)
         self.btn_novo.pack(side="right", padx=10, pady=10)
@@ -175,6 +191,10 @@ class InsumosView(ctk.CTkFrame):
         self.tree.column("custo", width=90, anchor="center")
         self.tree.column("qtd", width=80, anchor="center")
 
+        # Sprint 6.2: indicação visual de estoque abaixo do mínimo.
+        self.tree.tag_configure("estoque_alerta", background="#6A4E00", foreground="white")
+        self.tree.tag_configure("estoque_critico", background="#7A1E1E", foreground="white")
+
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
 
@@ -270,6 +290,12 @@ class InsumosView(ctk.CTkFrame):
         insumos = self.service.listar(nome=nome_busca, categoria=categoria_busca)
         
         for insumo in insumos:
+            tags = ()
+            if insumo.quantidade_disponivel <= 0:
+                tags = ("estoque_critico",)
+            elif insumo.quantidade_disponivel <= insumo.quantidade_minima:
+                tags = ("estoque_alerta",)
+
             self.tree.insert("", "end", values=(
                 insumo.id,
                 insumo.nome,
@@ -278,7 +304,11 @@ class InsumosView(ctk.CTkFrame):
                 self._formatar_numero_br(insumo.preco_compra, 2),
                 self._formatar_numero_br(insumo.custo_por_unidade, 4),
                 insumo.quantidade_disponivel
-            ))
+            ), tags=tags)
+
+        if callable(self.on_estoque_alerta_change):
+            total_alertas = sum(1 for insumo in insumos if insumo.quantidade_disponivel <= insumo.quantidade_minima)
+            self.on_estoque_alerta_change(total_alertas)
 
     def _on_novo(self):
         self.current_insumo_id = None
@@ -339,7 +369,11 @@ class InsumosView(ctk.CTkFrame):
     def _excluir_form(self):
         if self.current_insumo_id:
             nome = self.entry_nome.get()
-            resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o insumo '{nome}'?")
+            mensagem = (
+                f"Confirma a exclusao do insumo '{nome}'?\n\n"
+                "Esta acao nao pode ser desfeita."
+            )
+            resp = messagebox.askyesno("Confirmar exclusao", mensagem)
             if resp:
                 self.service.excluir(self.current_insumo_id)
                 self._carregar_dados()
@@ -352,7 +386,11 @@ class InsumosView(ctk.CTkFrame):
         item_id = self.tree.item(selected[0])['values'][0]
         nome = self.tree.item(selected[0])['values'][1]
         
-        resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o insumo '{nome}'?")
+        mensagem = (
+            f"Confirma a exclusao do insumo '{nome}'?\n\n"
+            "Esta acao nao pode ser desfeita."
+        )
+        resp = messagebox.askyesno("Confirmar exclusao", mensagem)
         if resp:
             self.service.excluir(item_id)
             self._carregar_dados()
@@ -403,3 +441,85 @@ class InsumosView(ctk.CTkFrame):
             
         except ValueError as e:
             messagebox.showerror("Erro", str(e))
+
+    def _on_exportar_excel(self):
+        nome_busca = self.entry_busca.get().strip()
+        categoria_busca = self.combo_categoria_filtro.get().strip()
+        insumos = self.service.listar(nome=nome_busca, categoria=categoria_busca)
+
+        if not insumos:
+            messagebox.showinfo("Exportar Excel", "Não há insumos para exportar com os filtros atuais.")
+            return
+
+        arquivo = filedialog.asksaveasfilename(
+            title="Salvar exportação de insumos",
+            defaultextension=".xlsx",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+            initialfile=f"insumos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        )
+        if not arquivo:
+            return
+
+        try:
+            workbook = Workbook()
+            planilha = workbook.active
+            planilha.title = "Insumos"
+
+            titulo = [
+                "ID",
+                "Nome",
+                "Categoria",
+                "Peso/Volume Total",
+                "Unidade",
+                "Preço de Compra",
+                "Custo por Unidade",
+                "Quantidade Disponível",
+                "Quantidade Mínima",
+                "Data da Compra",
+            ]
+            planilha.append(titulo)
+
+            for celula in planilha[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="A66850")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            for insumo in insumos:
+                data_compra = insumo.data_compra
+                if data_compra:
+                    try:
+                        data_compra = datetime.strptime(data_compra, "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except ValueError:
+                        pass
+
+                planilha.append([
+                    insumo.id,
+                    insumo.nome,
+                    insumo.categoria,
+                    insumo.peso_volume_total,
+                    insumo.unidade_medida,
+                    insumo.preco_compra,
+                    insumo.custo_por_unidade,
+                    insumo.quantidade_disponivel,
+                    insumo.quantidade_minima,
+                    data_compra or "",
+                ])
+
+            largura_maxima = {}
+            for linha in planilha.iter_rows():
+                for celula in linha:
+                    valor = "" if celula.value is None else str(celula.value)
+                    largura_maxima[celula.column_letter] = max(largura_maxima.get(celula.column_letter, 0), len(valor))
+
+            for coluna, largura in largura_maxima.items():
+                planilha.column_dimensions[coluna].width = min(largura + 2, 35)
+
+            planilha.freeze_panes = "A2"
+            workbook.save(arquivo)
+
+            messagebox.showinfo("Exportar Excel", f"Exportação concluída com sucesso.\nArquivo salvo em:\n{arquivo}")
+        except Exception as exc:
+            messagebox.showerror("Exportar Excel", f"Não foi possível exportar os insumos.\n\n{exc}")
+
+    def _on_historico_preco(self):
+        HistoricoPrecoInsumoView(self, service=self.service)

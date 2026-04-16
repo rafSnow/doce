@@ -69,6 +69,7 @@ def create_tables():
         produto_id              INTEGER NOT NULL REFERENCES produto(id),
         quantidade              INTEGER NOT NULL,
         preco_unitario_snapshot REAL NOT NULL,
+        data_snapshot           TEXT,
         valor_item              REAL NOT NULL
     );
 
@@ -99,6 +100,32 @@ def create_tables():
         pag_final_status   TEXT DEFAULT 'Pendente',
         responsavel        TEXT
     );
+
+    -- Configurações gerais
+    CREATE TABLE IF NOT EXISTS configuracao (
+        chave TEXT PRIMARY KEY,
+        valor TEXT
+    );
+
+    -- Histórico de preços de insumos (Sprint 10.1)
+    CREATE TABLE IF NOT EXISTS historico_preco_insumo (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        insumo_id     INTEGER NOT NULL REFERENCES insumo(id) ON DELETE CASCADE,
+        preco_anterior REAL NOT NULL,
+        preco_novo     REAL NOT NULL,
+        data_alteracao TEXT NOT NULL,
+        observacao     TEXT
+    );
+
+    -- Auditoria básica de operações críticas
+    CREATE TABLE IF NOT EXISTS auditoria (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        entidade     TEXT NOT NULL,
+        entidade_id  INTEGER,
+        acao         TEXT NOT NULL,
+        detalhes     TEXT,
+        criado_em    TEXT NOT NULL
+    );
     """
     conn.executescript(script)
 
@@ -119,5 +146,42 @@ def create_tables():
              WHERE (cliente_nome IS NULL OR cliente_nome = '')
                AND cliente_id IS NOT NULL
         """)
+
+    # Migração Sprint 6.1: versões antigas de insumo podem não ter campos de estoque
+    insumo_cols = [r["name"] for r in conn.execute("PRAGMA table_info(insumo)").fetchall()]
+    if "quantidade_disponivel" not in insumo_cols:
+        conn.execute("ALTER TABLE insumo ADD COLUMN quantidade_disponivel REAL NOT NULL DEFAULT 0")
+    if "quantidade_minima" not in insumo_cols:
+        conn.execute("ALTER TABLE insumo ADD COLUMN quantidade_minima REAL NOT NULL DEFAULT 0")
+
+    # Migração: adiciona data_snapshot em pedido_item para auditoria de precificação
+    pedido_item_cols = [r["name"] for r in conn.execute("PRAGMA table_info(pedido_item)").fetchall()]
+    if "data_snapshot" not in pedido_item_cols:
+        conn.execute("ALTER TABLE pedido_item ADD COLUMN data_snapshot TEXT")
+
+    # Índices de performance (Sprint 8.6)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cliente_nome ON cliente(nome)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_insumo_nome ON insumo(nome)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_produto_nome ON produto(nome)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_cliente_nome ON pedido(cliente_nome)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_data_pedido_id ON pedido(data_pedido DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_status_pag ON pedido(pag_inicial_status, pag_final_status)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_item_pedido_id ON pedido_item(pedido_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_item_produto_id ON pedido_item(produto_id)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_despesa_data_id ON despesa(data DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_despesa_categoria_status ON despesa(categoria, status)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rendimento_pag_inicial_data ON rendimento(pag_inicial_data)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rendimento_pag_final_data ON rendimento(pag_final_data)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rendimento_status_pag ON rendimento(pag_inicial_status, pag_final_status)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hist_preco_insumo_insumo_data ON historico_preco_insumo(insumo_id, data_alteracao DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hist_preco_insumo_data ON historico_preco_insumo(data_alteracao DESC)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auditoria_entidade_id ON auditoria(entidade, entidade_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auditoria_criado_em ON auditoria(criado_em DESC)")
 
     conn.commit()

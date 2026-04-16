@@ -64,6 +64,48 @@ class ProdutoService:
         conn.commit()
         return produto.id
 
+    def recalcular_por_insumo(self, insumo_id: int) -> int:
+        conn = get_connection()
+        rows = conn.execute(
+            """
+            SELECT DISTINCT produto_id
+            FROM produto_insumo
+            WHERE insumo_id=?
+            """,
+            (insumo_id,),
+        ).fetchall()
+
+        recalculados = 0
+        for row in rows:
+            produto = self.get_by_id(row["produto_id"])
+            if not produto:
+                continue
+
+            self._calcular_valores(produto)
+            conn.execute(
+                """
+                UPDATE produto
+                SET custo_unitario=?, preco_venda_unitario=?
+                WHERE id=?
+                """,
+                (produto.custo_unitario, produto.preco_venda_unitario, produto.id),
+            )
+
+            for pi in produto.insumos:
+                conn.execute(
+                    """
+                    UPDATE produto_insumo
+                    SET custo_proporcional=?
+                    WHERE produto_id=? AND insumo_id=?
+                    """,
+                    (pi.custo_proporcional, produto.id, pi.insumo_id),
+                )
+
+            recalculados += 1
+
+        conn.commit()
+        return recalculados
+
     def listar(self, nome: str = "") -> List[Produto]:
         conn = get_connection()
         query = "SELECT * FROM produto"

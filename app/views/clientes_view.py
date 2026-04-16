@@ -1,6 +1,10 @@
 import customtkinter as ctk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import re
+from datetime import datetime
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from app.models.cliente import Cliente
 from app.services.cliente_service import ClienteService
@@ -25,6 +29,9 @@ class ClientesView(ctk.CTkFrame):
         
         self.btn_novo = ctk.CTkButton(header_frame, text="Novo Cliente", command=self._novo_cliente)
         self.btn_novo.pack(side="right", padx=10, pady=10)
+
+        self.btn_exportar = ctk.CTkButton(header_frame, text="Exportar Excel", command=self._on_exportar_excel)
+        self.btn_exportar.pack(side="right", padx=(0, 10), pady=10)
         
         # === Body (Container) ===
         self.body_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -207,6 +214,52 @@ class ClientesView(ctk.CTkFrame):
         for c in clientes:
             self.tree.insert("", "end", values=(c.id, c.nome, c.telefone, c.email))
 
+    def _on_exportar_excel(self):
+        try:
+            dados = [self.tree.item(item, "values") for item in self.tree.get_children()]
+            if not dados:
+                messagebox.showinfo("Exportar Excel", "Não há clientes para exportar com o filtro atual.")
+                return
+
+            arquivo = filedialog.asksaveasfilename(
+                title="Salvar exportação de clientes",
+                defaultextension=".xlsx",
+                filetypes=[("Planilha Excel", "*.xlsx")],
+                initialfile=f"clientes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            )
+            if not arquivo:
+                return
+
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Clientes"
+
+            cabecalho = ["ID", "Nome", "Telefone", "E-mail"]
+            sheet.append(cabecalho)
+
+            for celula in sheet[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="A66850")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            for linha in dados:
+                sheet.append(list(linha))
+
+            larguras = {}
+            for linha in sheet.iter_rows():
+                for celula in linha:
+                    valor = "" if celula.value is None else str(celula.value)
+                    larguras[celula.column_letter] = max(larguras.get(celula.column_letter, 0), len(valor))
+
+            for coluna, largura in larguras.items():
+                sheet.column_dimensions[coluna].width = min(largura + 2, 45)
+
+            sheet.freeze_panes = "A2"
+            workbook.save(arquivo)
+            messagebox.showinfo("Exportar Excel", f"Exportação concluída com sucesso.\nArquivo salvo em:\n{arquivo}")
+        except Exception as exc:
+            messagebox.showerror("Exportar Excel", f"Não foi possível exportar os clientes.\n\n{exc}")
+
     def _limpar_form(self):
         self.current_id = None
         self.entry_nome.delete(0, 'end')
@@ -294,8 +347,13 @@ class ClientesView(ctk.CTkFrame):
     def _excluir(self):
         if not self.current_id:
             return
-            
-        if messagebox.askyesno("Confirmar", "Tem certeza que deseja excluir este cliente?"):
+
+        nome = self.entry_nome.get().strip() or f"ID {self.current_id}"
+        mensagem = (
+            f"Confirma a exclusao do cliente '{nome}'?\n\n"
+            "Esta acao nao pode ser desfeita."
+        )
+        if messagebox.askyesno("Confirmar exclusao", mensagem):
             try:
                 self.service.excluir(self.current_id)
                 messagebox.showinfo("Sucesso", "Cliente excluído com sucesso!")

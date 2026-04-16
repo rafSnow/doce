@@ -78,7 +78,7 @@ O sistema contempla os seguintes módulos:
 
 | ID | Requisito | Prioridade |
 |---|---|---|
-| RF-15 | Cadastrar pedido vinculado a um cliente, com data de entrega prevista | Alta |
+| RF-15 | Cadastrar pedido com identificação textual do cliente (`cliente_nome`) e data de entrega prevista | Alta |
 | RF-16 | Adicionar múltiplos produtos a um mesmo pedido, com suas respectivas quantidades | Alta |
 | RF-17 | Registrar o pagamento inicial (sinal): valor, data, forma de pagamento (Pix / Dinheiro) e status (Recebido / Pendente) | Alta |
 | RF-18 | Registrar o pagamento final: valor, data, forma de pagamento e status | Alta |
@@ -188,7 +188,7 @@ O sistema contempla os seguintes módulos:
 | Campo | Tipo | Descrição |
 |---|---|---|
 | `id` | INTEGER PK | Identificador único |
-| `cliente_id` | INTEGER FK | Referência ao cliente |
+| `cliente_nome` | TEXT | Nome do cliente no momento do pedido (snapshot textual) |
 | `data_pedido` | DATE | Data em que o pedido foi feito |
 | `data_entrega` | DATE | Data prevista para entrega |
 | `valor_total` | REAL | Soma dos itens do pedido |
@@ -211,6 +211,7 @@ O sistema contempla os seguintes módulos:
 | `produto_id` | INTEGER FK | Referência ao produto |
 | `quantidade` | INTEGER | Número de unidades solicitadas |
 | `preco_unitario_snapshot` | REAL | Preço no momento do pedido (histórico) |
+| `data_snapshot` | DATE/TEXT | Momento de captura do preço do item |
 | `valor_item` | REAL | **Calculado:** `quantidade × preco_unitario_snapshot` |
 
 ### 4.7 Entidade: Despesa
@@ -289,6 +290,7 @@ O sistema será considerado aprovado quando:
 - [ ] O dashboard exibir saldo atual e total a receber coerentes com os lançamentos
 - [ ] O executável `.exe` rodar em Windows sem instalação adicional de Python
 - [ ] O banco de dados sobreviver ao fechamento e reabertura com todos os dados intactos
+- [ ] Existirem testes automatizados mínimos para `PedidoService.salvar`, `DashboardService.get_resumo` e `ProdutoService._calcular_valores`
 
 ---
 

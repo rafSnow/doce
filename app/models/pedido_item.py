@@ -6,6 +6,7 @@ class PedidoItem:
     produto_id: int
     quantidade: int
     preco_unitario_snapshot: float = 0.0
+    data_snapshot: Optional[str] = None
     valor_item: float = 0.0
     id: Optional[int] = None
     pedido_id: Optional[int] = None

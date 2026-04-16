@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS cliente (
 -- Pedidos
 CREATE TABLE IF NOT EXISTS pedido (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    cliente_id         INTEGER REFERENCES cliente(id),
+    cliente_nome       TEXT,
     data_pedido        TEXT NOT NULL,
     data_entrega       TEXT,
     valor_total        REAL NOT NULL DEFAULT 0,
@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS pedido_item (
     produto_id              INTEGER NOT NULL REFERENCES produto(id),
     quantidade              INTEGER NOT NULL,
     preco_unitario_snapshot REAL NOT NULL,
+    data_snapshot           TEXT,
     valor_item              REAL NOT NULL
 );
 
@@ -203,6 +204,16 @@ CREATE TABLE IF NOT EXISTS rendimento (
     pag_final_status   TEXT DEFAULT 'Pendente',
     responsavel        TEXT
 );
+
+-- Auditoria
+CREATE TABLE IF NOT EXISTS auditoria (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    entidade     TEXT NOT NULL,
+    entidade_id  INTEGER,
+    acao         TEXT NOT NULL,
+    detalhes     TEXT,
+    criado_em    TEXT NOT NULL
+);
 ```
 
 ### 4.2 Diagrama de Relacionamentos
@@ -226,6 +237,12 @@ insumo ──────────────── produto_insumo ───
 - **Valores monetários** como `REAL` com precisão de 2 casas decimais (formatados na UI)
 - **Campos calculados** persistidos no banco para evitar recálculo a cada leitura
 - **ON DELETE CASCADE** nos itens dependentes para manter integridade referencial
+
+### 4.4 Decisão Arquitetural — Snapshot de Preço em Pedido
+
+- O `preco_unitario_snapshot` é salvo no `pedido_item` no momento do fechamento do pedido.
+- O campo `data_snapshot` registra quando o snapshot foi capturado.
+- Essa decisão preserva histórico financeiro: mudanças futuras no preço de produto não alteram pedidos antigos.
 
 ---
 

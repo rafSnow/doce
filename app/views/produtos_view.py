@@ -1,7 +1,10 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+from datetime import datetime
 from typing import List, Dict
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from app.models.insumo import Insumo
 from app.models.produto import Produto
@@ -28,6 +31,9 @@ class ProdutosView(ctk.CTkFrame):
         
         self.title_label = ctk.CTkLabel(header_frame, text="Gerenciamento de Produtos", font=("Roboto", 20, "bold"))
         self.title_label.pack(side="left", padx=10, pady=10)
+
+        self.btn_exportar = ctk.CTkButton(header_frame, text="Exportar Excel", command=self._on_exportar_excel)
+        self.btn_exportar.pack(side="right", padx=(0, 10), pady=10)
         
         self.btn_novo = ctk.CTkButton(header_frame, text="Novo Produto", command=self._on_novo)
         self.btn_novo.pack(side="right", padx=10, pady=10)
@@ -478,7 +484,11 @@ class ProdutosView(ctk.CTkFrame):
     def _excluir_form(self):
         if self.current_produto_id:
             nome = self.entry_nome.get()
-            resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o produto '{nome}'?")
+            mensagem = (
+                f"Confirma a exclusao do produto '{nome}'?\n\n"
+                "Esta acao nao pode ser desfeita."
+            )
+            resp = messagebox.askyesno("Confirmar exclusao", mensagem)
             if resp:
                 self.prod_service.excluir(self.current_produto_id)
                 self._carregar_dados()
@@ -492,13 +502,113 @@ class ProdutosView(ctk.CTkFrame):
         self.prod_service.duplicar(item_id)
         self._carregar_dados()
 
+    def _on_exportar_excel(self):
+        nome_busca = self.entry_busca.get().strip()
+        produtos = self.prod_service.listar(nome=nome_busca)
+
+        if not produtos:
+            messagebox.showinfo("Exportar Excel", "Não há produtos para exportar com o filtro atual.")
+            return
+
+        caminho_arquivo = filedialog.asksaveasfilename(
+            title="Salvar exportação de produtos",
+            defaultextension=".xlsx",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+            initialfile=f"produtos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        )
+        if not caminho_arquivo:
+            return
+
+        try:
+            workbook = Workbook()
+            sheet_resumo = workbook.active
+            sheet_resumo.title = "Produtos"
+
+            cabecalho_resumo = [
+                "ID",
+                "Nome",
+                "Rendimento",
+                "Custo Unitário (R$)",
+                "Markup (%)",
+                "Preço de Venda (R$)",
+            ]
+            sheet_resumo.append(cabecalho_resumo)
+
+            for celula in sheet_resumo[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="A66850")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            sheet_fichas = workbook.create_sheet("Ficha Tecnica")
+            cabecalho_fichas = [
+                "Produto ID",
+                "Produto",
+                "Insumo ID",
+                "Insumo",
+                "Quantidade Usada",
+                "Unidade",
+                "Custo Proporcional (R$)",
+            ]
+            sheet_fichas.append(cabecalho_fichas)
+
+            for celula in sheet_fichas[1]:
+                celula.font = Font(bold=True, color="FFFFFF")
+                celula.fill = PatternFill(fill_type="solid", fgColor="565b5e")
+                celula.alignment = Alignment(horizontal="center", vertical="center")
+
+            for produto in produtos:
+                sheet_resumo.append([
+                    produto.id,
+                    produto.nome,
+                    produto.rendimento_receita,
+                    produto.custo_unitario,
+                    produto.comissao_perc,
+                    produto.preco_venda_unitario,
+                ])
+
+                produto_detalhado = self.prod_service.get_by_id(produto.id)
+                if not produto_detalhado:
+                    continue
+
+                for pi in produto_detalhado.insumos:
+                    sheet_fichas.append([
+                        produto_detalhado.id,
+                        produto_detalhado.nome,
+                        pi.insumo_id,
+                        pi.insumo_nome or "",
+                        pi.quantidade_usada_receita,
+                        pi.insumo_unidade or "",
+                        pi.custo_proporcional,
+                    ])
+
+            for planilha in (sheet_resumo, sheet_fichas):
+                larguras = {}
+                for linha in planilha.iter_rows():
+                    for celula in linha:
+                        valor = "" if celula.value is None else str(celula.value)
+                        larguras[celula.column_letter] = max(larguras.get(celula.column_letter, 0), len(valor))
+
+                for coluna, largura in larguras.items():
+                    planilha.column_dimensions[coluna].width = min(largura + 2, 40)
+
+                planilha.freeze_panes = "A2"
+
+            workbook.save(caminho_arquivo)
+            messagebox.showinfo("Exportar Excel", f"Exportação concluída com sucesso.\nArquivo salvo em:\n{caminho_arquivo}")
+        except Exception as exc:
+            messagebox.showerror("Exportar Excel", f"Não foi possível exportar os produtos.\n\n{exc}")
+
     def _on_excluir_selecionado(self):
         selected = self.tree.selection()
         if not selected: return
         item_id = self.tree.item(selected[0])['values'][0]
         nome = self.tree.item(selected[0])['values'][1]
         
-        resp = messagebox.askyesno("Excluir", f"Tem certeza que deseja excluir o produto '{nome}'?")
+        mensagem = (
+            f"Confirma a exclusao do produto '{nome}'?\n\n"
+            "Esta acao nao pode ser desfeita."
+        )
+        resp = messagebox.askyesno("Confirmar exclusao", mensagem)
         if resp:
             self.prod_service.excluir(item_id)
             self._carregar_dados()
