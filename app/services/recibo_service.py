@@ -10,7 +10,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.pedido import Pedido
 from app.db.connection import get_db_path
@@ -60,7 +60,7 @@ class ReciboService:
         self._renderizar_documento(
             caminho,
             self._montar_story_manual(nome_estabelecimento or self.config_service.get_nome_estabelecimento()),
-            titulo="Manual Simplificado de Uso",
+            titulo="Manual Operacional de Uso",
         )
         return str(caminho)
 
@@ -204,42 +204,198 @@ class ReciboService:
         story: list = []
 
         story.append(Paragraph(nome_estabelecimento, styles["TituloDocumento"]))
-        story.append(Paragraph("Manual Simplificado de Uso", styles["SubtituloDocumento"]))
-        story.append(Paragraph("Guia rapido para operacao diaria da aplicacao desktop.", styles["CorpoDocumento"]))
+        story.append(Paragraph("Manual Operacional de Uso", styles["SubtituloDocumento"]))
+        story.append(
+            Paragraph(
+                "Guia completo para operacao diaria, controle financeiro, emissao de documentos e manutencao segura dos dados.",
+                styles["CorpoDocumento"],
+            )
+        )
+        story.append(Paragraph(f"Versao do manual: {datetime.now().strftime('%d/%m/%Y')}", styles["PequenoDocumento"]))
+        story.append(Spacer(1, 8))
 
-        story.append(Paragraph("1. Fluxo principal", styles["SubtituloDocumento"]))
-        passos = [
-            "Abra o Dashboard para acompanhar saldo atual, a receber, falta pagar e saldo previsto.",
-            "Cadastre ou ajuste insumos e produtos antes de registrar novos pedidos.",
-            "No modulo de Pedidos, use Novo Pedido, selecione cliente, informe datas e adicione itens.",
-            "Salve o pedido e use as opcoes de Recibo para pre-visualizar, salvar em PDF ou imprimir.",
-            "Use o modulo Financeiro para acompanhar despesas, rendimentos e seus filtros.",
-            "Em Configuracoes, faca backup e atualize o nome do estabelecimento quando necessario.",
-        ]
-        for passo in passos:
-            story.append(Paragraph(f"- {passo}", styles["CorpoDocumento"]))
+        story.append(Paragraph("1. Objetivo e publico", styles["SubtituloDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Padronizar o uso do sistema para reduzir erros operacionais e retrabalho.",
+                    "Garantir rastreabilidade das informacoes de pedidos, insumos, produtos e financeiro.",
+                    "Apoiar equipe administrativa, atendimento e responsavel pela producao.",
+                ],
+                styles,
+            )
+        )
 
-        story.append(Paragraph("2. Recibo / Ordem de servico", styles["SubtituloDocumento"]))
-        recibo_textos = [
-            "Pre-visualizar gera um arquivo temporario e abre no visualizador padrao do Windows.",
-            "Salvar PDF solicita um local e nome para arquivar o documento.",
-            "Imprimir envia o PDF gerado diretamente para a impressora padrao.",
-        ]
-        for texto in recibo_textos:
-            story.append(Paragraph(f"- {texto}", styles["CorpoDocumento"]))
+        story.append(Paragraph("2. Rotina diaria recomendada", styles["SubtituloDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Inicio do dia: validar Dashboard e revisar alertas de estoque.",
+                    "Durante o dia: registrar novos pedidos e atualizar pagamentos recebidos.",
+                    "Fim do dia: conferir despesas/rendimentos, emitir recibos pendentes e executar backup.",
+                ],
+                styles,
+            )
+        )
 
-        story.append(Paragraph("3. Dicas de uso", styles["SubtituloDocumento"]))
-        dicas = [
-            "Mantenha o nome do estabelecimento atualizado para refletir no cabecalho dos documentos.",
-            "Use o Dashboard com o periodo correto antes de emitir o recibo para conferencia visual.",
-            "O backup do banco salva todos os dados locais em um arquivo .db independente do executavel.",
+        story.append(Paragraph("3. Fluxo operacional de ponta a ponta", styles["SubtituloDocumento"]))
+        fluxo = [
+            ["Etapa", "Acao principal", "Resultado esperado"],
+            ["1. Cadastro base", "Atualizar insumos, produtos e clientes", "Base pronta para novos pedidos"],
+            ["2. Pedido", "Criar pedido e incluir itens", "Valor total calculado e registrado"],
+            ["3. Pagamentos", "Informar entradas iniciais/finais", "Status financeiro atualizado"],
+            ["4. Recibo", "Pre-visualizar, salvar ou imprimir PDF", "Documento formal do pedido"],
+            ["5. Financeiro", "Conferir despesas e rendimentos", "Visao real do caixa"],
+            ["6. Encerramento", "Executar backup e checar desempenho", "Operacao protegida"],
         ]
-        for dica in dicas:
-            story.append(Paragraph(f"- {dica}", styles["CorpoDocumento"]))
+        tabela_fluxo = Table(fluxo, colWidths=[38 * mm, 62 * mm, 62 * mm], repeatRows=1)
+        tabela_fluxo.setStyle(self._estilo_tabela_base())
+        story.append(tabela_fluxo)
+        story.append(Spacer(1, 8))
+
+        story.append(PageBreak())
+
+        story.append(Paragraph("4. Modulos do sistema", styles["SubtituloDocumento"]))
+
+        story.append(Paragraph("4.1 Dashboard", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Exibe saldo realizado, a receber, falta pagar e saldo previsto.",
+                    "Permite trocar periodo para leitura executiva rapida.",
+                    "Use como primeira tela de analise antes de decisoes financeiras.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("4.2 Insumos", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Cadastre nome, categoria, preco, unidade e quantidades disponivel/minima.",
+                    "Observe linhas destacadas para estoque critico ou abaixo do minimo.",
+                    "Atualize sempre que houver nova compra para manter custo por unidade correto.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("4.3 Produtos", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Monte produtos com base nos insumos cadastrados.",
+                    "Revise rendimento e custos para manter margem saudavel.",
+                    "Ajustes em produto impactam novos pedidos e estimativas.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("4.4 Pedidos", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Selecione cliente, informe datas e adicione itens do pedido.",
+                    "Registre responsavel e observacoes para facilitar atendimento.",
+                    "Use recibo para documentar a negociacao e forma de pagamento.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("4.5 Financeiro", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Despesas: registre saidas, categorias e status de pagamento.",
+                    "Rendimentos: registre entradas de clientes e status inicial/final.",
+                    "Use filtros por periodo/status para auditoria e fechamento.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("4.6 Configuracoes", styles["CorpoDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Atualize o nome do estabelecimento para refletir nos documentos.",
+                    "Execute backup recorrente e teste restauracao periodicamente.",
+                    "Rode validacao de desempenho para monitorar degradacoes.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("5. Recibos e documentos", styles["SubtituloDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Pre-visualizar: gera PDF temporario para revisao antes da entrega.",
+                    "Salvar PDF: arquiva documento em pasta definida pelo usuario.",
+                    "Imprimir: envia o arquivo para a impressora padrao do Windows.",
+                    "Boa pratica: validar cliente, itens, valores e status antes de emitir.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(PageBreak())
+
+        story.append(Paragraph("6. Solucao de problemas", styles["SubtituloDocumento"]))
+        incidentes = [
+            ["Situacao", "Causa comum", "Acao recomendada"],
+            ["PDF nao abre", "Associacao de arquivo no sistema", "Salvar localmente e abrir manualmente no leitor PDF"],
+            ["Lentidao em consultas", "Base grande ou ambiente sobrecarregado", "Executar validacao de desempenho e fechar apps paralelos"],
+            ["Divergencia em valores", "Cadastro desatualizado", "Revisar insumos/produtos e atualizar snapshots em novos pedidos"],
+            ["Erro em backup", "Permissao/caminho", "Escolher pasta local com permissao de escrita"],
+        ]
+        tabela_incidentes = Table(incidentes, colWidths=[45 * mm, 52 * mm, 65 * mm], repeatRows=1)
+        tabela_incidentes.setStyle(self._estilo_tabela_base())
+        story.append(tabela_incidentes)
+        story.append(Spacer(1, 8))
+
+        story.append(Paragraph("7. Boas praticas de seguranca e governanca", styles["SubtituloDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Nao compartilhe o arquivo do banco (.db) por canais sem protecao.",
+                    "Mantenha pelo menos 3 backups recentes em locais diferentes.",
+                    "Padronize responsavel em pedidos/despesas/rendimentos para auditoria.",
+                    "Faça revisao semanal dos dados financeiros pendentes.",
+                ],
+                styles,
+            )
+        )
+
+        story.append(Paragraph("8. Checklist de fechamento semanal", styles["SubtituloDocumento"]))
+        story.extend(
+            self._manual_bullets(
+                [
+                    "Conferir pedidos pendentes e datas de entrega.",
+                    "Conferir despesas pendentes e pagamentos realizados.",
+                    "Conferir rendimentos pendentes e recebidos.",
+                    "Emitir relatorios/exportacoes necessarias para controle externo.",
+                    "Gerar backup e validar abertura do arquivo salvo.",
+                ],
+                styles,
+            )
+        )
 
         story.append(Spacer(1, 10))
-        story.append(Paragraph("Documento gerado automaticamente pelo sistema.", styles["PequenoDocumento"]))
+        story.append(
+            Paragraph(
+                "Documento gerado automaticamente pelo sistema. Atualize o manual sempre que novos fluxos forem incorporados.",
+                styles["PequenoDocumento"],
+            )
+        )
         return story
+
+    def _manual_bullets(self, linhas: list[str], styles) -> list:
+        return [Paragraph(f"- {linha}", styles["CorpoDocumento"]) for linha in linhas]
 
     def _estilo_tabela_base(self) -> TableStyle:
         return TableStyle(
