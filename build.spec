@@ -2,14 +2,30 @@
 
 from pathlib import Path
 
+try:
+    from PIL import Image
+except Exception:
+    Image = None
+
 # In PyInstaller spec execution, __file__ is not guaranteed.
 # SPECPATH points to the folder containing this spec file.
 project_root = Path(SPECPATH).resolve()
 manual_pdf = project_root / "docs" / "manual_simplificado.pdf"
+app_icon_png = project_root / "assets" / "icon.png"
+app_icon_ico = project_root / "assets" / "icon.ico"
+
+if app_icon_png.exists() and Image is not None:
+    Image.open(app_icon_png).save(
+        app_icon_ico,
+        format="ICO",
+        sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)],
+    )
 
 datas = []
 if manual_pdf.exists():
     datas.append((str(manual_pdf), "docs"))
+if app_icon_png.exists():
+    datas.append((str(app_icon_png), "assets"))
 
 block_cipher = None
 
@@ -38,6 +54,7 @@ exe = EXE(
     a.datas,
     [],
     name="DolceNeves",
+    icon=str(app_icon_ico) if app_icon_ico.exists() else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,92 +1,229 @@
 import customtkinter as ctk
 from datetime import datetime
 from tkinter import filedialog, messagebox
+import os
 
 from app.services.configuracao_service import ConfiguracaoService
 from app.services.performance_service import PerformanceService
 from app.services.recibo_service import ReciboService
 
 
+BG_DEEP = "#12100E"
+CARD_BG = "#1E1814"
+CARD_BORDER = "#2E2218"
+HEADER_BG = "#171310"
+FIELD_BG = "#241C18"
+
+ACCENT = "#C8866B"
+TEXT_PRIMARY = "#F0E0D0"
+TEXT_SECONDARY = "#A08070"
+TEXT_MUTED = "#5A4A40"
+
+
+def _separator(parent, **kwargs):
+    return ctk.CTkFrame(parent, fg_color=CARD_BORDER, height=1, **kwargs)
+
+
+def _card(parent, **kwargs):
+    return ctk.CTkFrame(
+        parent,
+        fg_color=CARD_BG,
+        corner_radius=12,
+        border_width=1,
+        border_color=CARD_BORDER,
+        **kwargs,
+    )
+
+
+def _btn_accent(parent, text, command, **kwargs):
+    return ctk.CTkButton(
+        parent,
+        text=text,
+        command=command,
+        fg_color=ACCENT,
+        hover_color="#A06050",
+        text_color="#FFFFFF",
+        height=30,
+        corner_radius=20,
+        font=ctk.CTkFont(size=12, weight="bold"),
+        **kwargs,
+    )
+
+
+def _btn_ghost(parent, text, command, **kwargs):
+    return ctk.CTkButton(
+        parent,
+        text=text,
+        command=command,
+        fg_color=FIELD_BG,
+        hover_color="#2A201A",
+        border_color=CARD_BORDER,
+        border_width=1,
+        text_color=TEXT_SECONDARY,
+        height=30,
+        corner_radius=20,
+        font=ctk.CTkFont(size=12),
+        **kwargs,
+    )
+
+
 class ConfiguracoesView(ctk.CTkFrame):
     def __init__(self, master, nome_atual: str = "", on_nome_alterado=None, **kwargs):
-        super().__init__(master, fg_color="transparent", **kwargs)
+        super().__init__(master, fg_color=BG_DEEP, **kwargs)
 
         self.service = ConfiguracaoService()
         self.performance_service = PerformanceService()
         self.recibo_service = ReciboService()
         self.on_nome_alterado = on_nome_alterado
 
-        self.title_font = ctk.CTkFont(family="Roboto", size=22, weight="bold")
-        self.body_font = ctk.CTkFont(family="Roboto", size=14)
-
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
-        header = ctk.CTkFrame(self)
-        header.grid(row=0, column=0, padx=16, pady=16, sticky="ew")
-        self.header = header
+        self._build_topbar()
+        _separator(self).grid(row=1, column=0, sticky="ew")
+        self._build_body(nome_atual)
 
-        ctk.CTkLabel(header, text="Configurações", font=self.title_font).pack(side="left", padx=14, pady=12)
+    def _build_topbar(self):
+        bar = ctk.CTkFrame(self, fg_color=HEADER_BG, corner_radius=0, height=56)
+        bar.grid(row=0, column=0, sticky="ew", pady=(10, 0))
+        bar.grid_propagate(False)
+        bar.grid_columnconfigure(0, weight=1)
 
-        body = ctk.CTkFrame(self)
-        body.grid(row=1, column=0, padx=16, pady=(0, 16), sticky="nsew")
-        body.grid_columnconfigure(1, weight=1)
-        self.body = body
+        ctk.CTkLabel(
+            bar,
+            text="Configuracoes",
+            text_color=TEXT_PRIMARY,
+            font=ctk.CTkFont(family="Roboto", size=20, weight="bold"),
+        ).grid(row=0, column=0, padx=20, sticky="w")
 
-        ctk.CTkLabel(body, text="Nome do estabelecimento*", font=self.body_font).grid(row=0, column=0, padx=12, pady=14, sticky="e")
-        self.entry_nome = ctk.CTkEntry(body, placeholder_text="Ex: Doce da Maria")
-        self.entry_nome.grid(row=0, column=1, padx=12, pady=14, sticky="ew")
+        actions = ctk.CTkFrame(bar, fg_color="transparent")
+        actions.grid(row=0, column=1, padx=(6, 16), sticky="e")
+        self.btn_salvar = _btn_accent(actions, "Salvar", self._on_salvar)
+        self.btn_salvar.grid(row=0, column=0, padx=4)
+
+    def _build_body(self, nome_atual: str):
+        self.body = ctk.CTkFrame(self, fg_color="transparent")
+        self.body.grid(row=2, column=0, padx=16, pady=(12, 16), sticky="nsew")
+        self.body.grid_columnconfigure(0, weight=1)
+        self.body.grid_rowconfigure(3, weight=1)
+
+        card_nome = _card(self.body)
+        card_nome.grid(row=0, column=0, sticky="ew", padx=6, pady=(0, 10))
+        card_nome.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            card_nome,
+            text="IDENTIDADE",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, padx=16, pady=(12, 8), sticky="w")
+
+        ctk.CTkLabel(
+            card_nome,
+            text="Nome do estabelecimento*",
+            text_color=TEXT_SECONDARY,
+            font=ctk.CTkFont(size=12),
+        ).grid(row=1, column=0, padx=12, pady=(2, 10), sticky="e")
+
+        self.entry_nome = ctk.CTkEntry(
+            card_nome,
+            placeholder_text="Ex: Doce da Maria",
+            fg_color=FIELD_BG,
+            border_color=CARD_BORDER,
+            text_color=TEXT_PRIMARY,
+            height=32,
+        )
+        self.entry_nome.grid(row=1, column=1, padx=(0, 14), pady=(2, 10), sticky="ew")
 
         valor_inicial = nome_atual.strip() if nome_atual and nome_atual.strip() else self.service.get_nome_estabelecimento()
         self.entry_nome.insert(0, valor_inicial)
 
         self.lbl_info = ctk.CTkLabel(
-            body,
-            text="Esse nome será exibido no menu lateral e no título da janela.",
-            font=self.body_font,
-            text_color=("gray30", "gray70"),
+            card_nome,
+            text="Esse nome sera exibido no menu lateral e no titulo da janela.",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=11),
+            justify="left",
+            anchor="w",
         )
-        self.lbl_info.grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 14), sticky="w")
+        self.lbl_info.grid(row=2, column=0, columnspan=2, padx=16, pady=(0, 12), sticky="ew")
 
-        ctk.CTkLabel(body, text="Backup do banco", font=self.body_font).grid(row=2, column=0, padx=12, pady=14, sticky="e")
-        self.btn_backup = ctk.CTkButton(body, text="Fazer backup", command=self._on_backup, height=36)
-        self.btn_backup.grid(row=2, column=1, padx=12, pady=14, sticky="w")
+        card_backup = _card(self.body)
+        card_backup.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 10))
+        card_backup.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card_backup,
+            text="BACKUP",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).grid(row=0, column=0, padx=16, pady=(12, 8), sticky="w")
+
+        row_backup = ctk.CTkFrame(card_backup, fg_color="transparent")
+        row_backup.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
+        row_backup.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(row_backup, text="Backup do banco de dados", text_color=TEXT_SECONDARY).grid(row=0, column=0, sticky="w")
+        self.btn_backup = _btn_ghost(row_backup, "Fazer backup", self._on_backup)
+        self.btn_backup.grid(row=0, column=1, sticky="e")
 
         self.lbl_backup_status = ctk.CTkLabel(
-            body,
-            text="Nenhum backup executado nesta sessão.",
-            font=self.body_font,
-            text_color=("gray30", "gray70"),
+            card_backup,
+            text="Nenhum backup executado nesta sessao.",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=11),
             justify="left",
             anchor="w",
         )
-        self.lbl_backup_status.grid(row=3, column=0, columnspan=2, padx=12, pady=(0, 12), sticky="ew")
+        self.lbl_backup_status.grid(row=2, column=0, padx=16, pady=(0, 12), sticky="ew")
 
-        ctk.CTkLabel(body, text="Desempenho de consultas", font=self.body_font).grid(row=4, column=0, padx=12, pady=14, sticky="e")
-        self.btn_performance = ctk.CTkButton(body, text="Validar desempenho", command=self._on_validar_desempenho, height=36)
-        self.btn_performance.grid(row=4, column=1, padx=12, pady=14, sticky="w")
+        card_perf = _card(self.body)
+        card_perf.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 10))
+        card_perf.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card_perf,
+            text="PERFORMANCE",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).grid(row=0, column=0, padx=16, pady=(12, 8), sticky="w")
+
+        row_perf = ctk.CTkFrame(card_perf, fg_color="transparent")
+        row_perf.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
+        row_perf.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(row_perf, text="Diagnostico de consultas", text_color=TEXT_SECONDARY).grid(row=0, column=0, sticky="w")
+        self.btn_performance = _btn_ghost(row_perf, "Validar desempenho", self._on_validar_desempenho)
+        self.btn_performance.grid(row=0, column=1, sticky="e")
 
         self.lbl_performance_status = ctk.CTkLabel(
-            body,
-            text="Validação de desempenho ainda não executada.",
-            font=self.body_font,
-            text_color=("gray30", "gray70"),
+            card_perf,
+            text="Validacao de desempenho ainda nao executada.",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=11),
             justify="left",
             anchor="w",
         )
-        self.lbl_performance_status.grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 12), sticky="ew")
+        self.lbl_performance_status.grid(row=2, column=0, padx=16, pady=(0, 12), sticky="ew")
 
-        ctk.CTkLabel(body, text="Manual de uso", font=self.body_font).grid(row=6, column=0, padx=12, pady=14, sticky="e")
-        self.btn_manual = ctk.CTkButton(body, text="Abrir manual PDF", command=self._on_manual_uso, height=36)
-        self.btn_manual.grid(row=6, column=1, padx=12, pady=14, sticky="w")
+        card_manual = _card(self.body)
+        card_manual.grid(row=3, column=0, sticky="ew", padx=6, pady=0)
+        card_manual.grid_columnconfigure(0, weight=1)
 
-        frame_acoes = ctk.CTkFrame(body, fg_color="transparent")
-        frame_acoes.grid(row=7, column=0, columnspan=2, padx=12, pady=(8, 16), sticky="e")
+        ctk.CTkLabel(
+            card_manual,
+            text="DOCUMENTACAO",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        ).grid(row=0, column=0, padx=16, pady=(12, 8), sticky="w")
 
-        self.btn_salvar = ctk.CTkButton(frame_acoes, text="Salvar", command=self._on_salvar, height=36)
-        self.btn_salvar.pack(side="right")
+        row_manual = ctk.CTkFrame(card_manual, fg_color="transparent")
+        row_manual.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
+        row_manual.grid_columnconfigure(0, weight=1)
 
-        self.bind("<Configure>", self._on_resize)
+        ctk.CTkLabel(row_manual, text="Manual em PDF", text_color=TEXT_SECONDARY).grid(row=0, column=0, sticky="w")
+        self.btn_manual = _btn_ghost(row_manual, "Abrir manual PDF", self._on_manual_uso)
+        self.btn_manual.grid(row=0, column=1, sticky="e")
 
     def _on_salvar(self):
         nome = self.entry_nome.get().strip()
@@ -198,32 +335,18 @@ class ConfiguracoesView(ctk.CTkFrame):
 
     def _atualizar_status_backup(self, mensagem: str, tipo: str):
         cores = {
-            "success": ("#0F5132", "#75E3B5"),
-            "error": ("#842029", "#FF9AA2"),
-            "warning": ("#664D03", "#FFD166"),
+            "success": "#7CC99A",
+            "error": "#F1B0A0",
+            "warning": "#E8A94A",
         }
-        cor = cores.get(tipo, ("gray30", "gray70"))
+        cor = cores.get(tipo, TEXT_MUTED)
         self.lbl_backup_status.configure(text=mensagem, text_color=cor)
 
     def _atualizar_status_performance(self, mensagem: str, tipo: str):
         cores = {
-            "success": ("#0F5132", "#75E3B5"),
-            "error": ("#842029", "#FF9AA2"),
-            "warning": ("#664D03", "#FFD166"),
+            "success": "#7CC99A",
+            "error": "#F1B0A0",
+            "warning": "#E8A94A",
         }
-        cor = cores.get(tipo, ("gray30", "gray70"))
+        cor = cores.get(tipo, TEXT_MUTED)
         self.lbl_performance_status.configure(text=mensagem, text_color=cor)
-
-    def _on_resize(self, _event=None):
-        largura = self.winfo_width()
-
-        if largura <= 900:
-            self.title_font.configure(size=20)
-            self.body_font.configure(size=13)
-            self.header.grid_configure(padx=10, pady=10)
-            self.body.grid_configure(padx=10, pady=(0, 10))
-        else:
-            self.title_font.configure(size=22)
-            self.body_font.configure(size=14)
-            self.header.grid_configure(padx=16, pady=16)
-            self.body.grid_configure(padx=16, pady=(0, 16))

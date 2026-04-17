@@ -1,5 +1,12 @@
 import customtkinter as ctk
 import tkinter as tk
+import sys
+from pathlib import Path
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 # ── Paleta de cores ──────────────────────────────────────────────────────────
 BG_DEEP       = "#12100E"   # fundo da janela
@@ -144,6 +151,11 @@ class MainWindow(ctk.CTk):
         self.geometry("1220x820")
         self.minsize(880, 640)
 
+        self._app_icon_image = None
+        self._sidebar_logo_image = None
+        self._apply_app_icon()
+        self._maximize_on_start()
+
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
@@ -154,7 +166,75 @@ class MainWindow(ctk.CTk):
         self._build_sidebar()
         self._build_content()
         self._atualizar_badge_alerta_insumos()
+        self.show_dashboard_view()
+        self.bind("<Escape>", self._sair_tela_cheia)
+        self.bind("<F11>", self._alternar_tela_cheia)
         self.bind("<Configure>", self._on_resize)
+
+    def _resolve_asset_path(self, relative_path: str) -> Path:
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            base_dir = Path(sys._MEIPASS)
+        else:
+            base_dir = Path(__file__).resolve().parents[2]
+        return base_dir / relative_path
+
+    def _apply_app_icon(self):
+        icon_path = self._resolve_asset_path("assets/icon.png")
+        if not icon_path.exists():
+            return
+        try:
+            self._app_icon_image = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._app_icon_image)
+        except Exception:
+            # Se o ambiente não suportar o formato, mantém o ícone padrão.
+            self._app_icon_image = None
+
+    def _maximize_on_start(self):
+        self.update_idletasks()
+        try:
+            self.attributes("-fullscreen", True)
+        except tk.TclError:
+            width = self.winfo_screenwidth()
+            height = self.winfo_screenheight()
+            self.geometry(f"{width}x{height}+0+0")
+
+    def _sair_tela_cheia(self, _event=None):
+        try:
+            self.attributes("-fullscreen", False)
+        except tk.TclError:
+            pass
+
+    def _entrar_tela_cheia(self, _event=None):
+        try:
+            self.attributes("-fullscreen", True)
+        except tk.TclError:
+            pass
+
+    def _alternar_tela_cheia(self, _event=None):
+        try:
+            atual = bool(self.attributes("-fullscreen"))
+            self.attributes("-fullscreen", not atual)
+        except tk.TclError:
+            pass
+
+    def _load_sidebar_logo(self):
+        icon_path = self._resolve_asset_path("assets/icon.png")
+        if not icon_path.exists():
+            return None
+        try:
+            if Image is not None:
+                pil_img = Image.open(icon_path)
+                return ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(28, 28))
+
+            img = tk.PhotoImage(file=str(icon_path))
+            max_side = max(img.width(), img.height())
+            if max_side > 28:
+                ratio = max_side / 28
+                factor = max(1, int(ratio))
+                img = img.subsample(factor, factor)
+            return img
+        except Exception:
+            return None
 
     # ── Sidebar ───────────────────────────────────────────────────────────
     def _build_sidebar(self):
@@ -170,6 +250,14 @@ class MainWindow(ctk.CTk):
         # ── Logo ──────────────────────────────────────────────────────────
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         logo_frame.grid(row=0, column=0, padx=16, pady=(20, 14), sticky="ew")
+
+        self._sidebar_logo_image = self._load_sidebar_logo()
+        if self._sidebar_logo_image is not None:
+            ctk.CTkLabel(
+                logo_frame,
+                text="",
+                image=self._sidebar_logo_image,
+            ).pack(anchor="w", pady=(0, 6))
 
         ctk.CTkLabel(
             logo_frame, text="GESTÃO", anchor="w",
