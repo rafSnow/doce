@@ -171,7 +171,7 @@ class ProdutosView(ctk.CTkFrame):
 
         _treeview_style("Produtos", rowheight=27)
 
-        columns = ("id", "nome", "rendimento", "custo", "comissao", "preco")
+        columns = ("id", "nome", "rendimento", "custo", "comissao", "preco", "pode_produzir")
         self.tree = ttk.Treeview(table_frame, columns=columns, show="headings",
                                  style="Produtos.Treeview")
 
@@ -181,6 +181,7 @@ class ProdutosView(ctk.CTkFrame):
         self.tree.heading("custo",      text="Custo Unita. (R$)")
         self.tree.heading("comissao",   text="Markup (%)")
         self.tree.heading("preco",      text="Preço Venda (R$)")
+        self.tree.heading("pode_produzir", text="Pode Produzir")
 
         self.tree.column("id",         width=40,  anchor="center")
         self.tree.column("nome",       width=180, anchor="w")
@@ -188,6 +189,7 @@ class ProdutosView(ctk.CTkFrame):
         self.tree.column("custo",      width=110, anchor="center")
         self.tree.column("comissao",   width=90,  anchor="center")
         self.tree.column("preco",      width=110, anchor="center")
+        self.tree.column("pode_produzir", width=100, anchor="center")
 
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -226,7 +228,7 @@ class ProdutosView(ctk.CTkFrame):
                      text_color=TEXT_MUTED, font=ctk.CTkFont(size=10, weight="bold"),
                      ).grid(row=0, column=0, columnspan=2, pady=10, sticky="w")
 
-        ctk.CTkLabel(inner_form, text="Nome", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner_form, text="Nome*", text_color=TEXT_SECONDARY
                      ).grid(row=1, column=0, padx=10, pady=(5, 2), sticky="w")
         self.entry_nome = ctk.CTkEntry(
             inner_form, placeholder_text="Texto", width=300,
@@ -234,9 +236,9 @@ class ProdutosView(ctk.CTkFrame):
         )
         self.entry_nome.grid(row=2, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
 
-        ctk.CTkLabel(inner_form, text="Rendimento",  text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner_form, text="Rendimento*",  text_color=TEXT_SECONDARY
                      ).grid(row=3, column=0, padx=10, pady=(5, 2), sticky="w")
-        ctk.CTkLabel(inner_form, text="Markup (%)",  text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner_form, text="Markup (%)*",  text_color=TEXT_SECONDARY
                      ).grid(row=3, column=1, padx=10, pady=(5, 2), sticky="w")
 
         self.entry_rendimento = ctk.CTkEntry(
@@ -369,16 +371,21 @@ class ProdutosView(ctk.CTkFrame):
         )
         self.btn_cancelar.pack(side="right", padx=5)
 
+        ctk.CTkLabel(inner_form, text="* Campos obrigatórios", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).grid(row=10, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="w")
+
     # ── dados ─────────────────────────────────────────────────────────────
     def _carregar_dados(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
         for p in self.prod_service.listar(nome=self.entry_busca.get()):
+            capacidade = self.insumo_service.calcular_capacidade_producao(p.id)
             self.tree.insert("", "end", values=(
                 p.id, p.nome, p.rendimento_receita,
                 fmt_moeda(p.custo_unitario),
                 f"{p.comissao_perc}%",
                 fmt_moeda(p.preco_venda_unitario),
+                capacidade,
             ))
 
     def _carregar_combo_insumos(self):
@@ -393,7 +400,11 @@ class ProdutosView(ctk.CTkFrame):
         self.current_insumos_list.clear()
         self.entry_nome.delete(0, "end")
         self.entry_rendimento.delete(0, "end"); self.entry_rendimento.insert(0, "1")
-        self.entry_markup.delete(0, "end");    self.entry_markup.insert(0, "0")
+        
+        from app.services.configuracao_service import ConfiguracaoService
+        markup_padrao = ConfiguracaoService().get_markup_padrao()
+        self.entry_markup.delete(0, "end");    self.entry_markup.insert(0, str(markup_padrao))
+        
         self.btn_excluir.configure(state="disabled")
         self._carregar_combo_insumos()
         self._render_tree_insumos()
@@ -467,9 +478,20 @@ class ProdutosView(ctk.CTkFrame):
         )
         custo_un    = (custo_total / rendimento) if rendimento > 0 else 0
         preco_venda = custo_un * (1 + (markup / 100))
+        
+        # Regra P-07: Alerta visual de margem negativa em tempo real
+        status_venda = ""
+        cor_venda    = COLOR_GREEN
+        if preco_venda < custo_un:
+            status_venda = " (ABAIXO DO CUSTO!)"
+            cor_venda    = COLOR_RED
+
         self.lbl_custo_receita.configure(text=f"Custo Receita: R$ {custo_total:.2f}")
         self.lbl_custo_un.configure(text=f"Custo Unita.: R$ {custo_un:.2f}")
-        self.lbl_preco_venda.configure(text=f"Preço Venda: R$ {preco_venda:.2f}")
+        self.lbl_preco_venda.configure(
+            text=f"Preço Venda: R$ {preco_venda:.2f}{status_venda}",
+            text_color=cor_venda
+        )
 
     def _on_salvar(self):
         nome = self.entry_nome.get().strip()
@@ -488,6 +510,22 @@ class ProdutosView(ctk.CTkFrame):
                     raise ValueError("Todas as quantidades de insumos devem ser maiores que zero.")
         except ValueError as e:
             messagebox.showerror("Erro", str(e)); return
+
+        # Regra P-07: Alerta de margem negativa antes de persistir
+        custo_total = sum(
+            pi.quantidade_usada_receita * self.matriz_insumos[pi.insumo_id].custo_por_unidade
+            for pi in self.current_insumos_list
+            if pi.insumo_id in self.matriz_insumos
+        )
+        custo_un = custo_total / rend if rend > 0 else 0
+        preco_venda = custo_un * (1 + (mkup / 100))
+
+        if preco_venda < custo_un:
+            if not messagebox.askokcancel("Aviso de Margem",
+                f"Atenção: O preço de venda (R$ {preco_venda:.2f}) está abaixo do custo unitário (R$ {custo_un:.2f}).\n"
+                "Deseja salvar mesmo assim?"):
+                return
+
         self.prod_service.salvar(Produto(
             id=self.current_produto_id, nome=nome,
             rendimento_receita=rend, comissao_perc=mkup,

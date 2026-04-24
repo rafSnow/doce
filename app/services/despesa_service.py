@@ -210,11 +210,21 @@ class DespesaService:
     def _validar_pagamento(self, despesa: Despesa) -> None:
         if despesa.status not in (StatusPagamento.PENDENTE.value, StatusPagamento.PAGO.value):
             raise ValueError(f"Status de despesa inválido: {despesa.status}")
-        if float(despesa.valor or 0.0) < 0:
-            raise ValueError("Valor da despesa não pode ser negativo")
+        
+        # REGRA D-09: Valor mínimo
+        if float(despesa.valor or 0.0) < 0.01:
+            raise ValueError("Valor da despesa deve ser de pelo menos R$ 0,01.")
 
-        if despesa.status == StatusPagamento.PAGO.value and not despesa.data_pagamento_final:
-            raise ValueError("Despesa com status 'Pago' exige data de pagamento final")
+        if despesa.status == StatusPagamento.PAGO.value:
+            if not despesa.data_pagamento_final:
+                raise ValueError("Despesa com status 'Pago' exige data de pagamento final")
+            
+            # REGRA D-06: data_pagamento >= data da despesa
+            if despesa.data and despesa.data_pagamento_final:
+                d_desp = datetime.strptime(normalizar_data_iso(despesa.data), "%Y-%m-%d")
+                d_pag = datetime.strptime(normalizar_data_iso(despesa.data_pagamento_final), "%Y-%m-%d")
+                if d_pag < d_desp:
+                    raise ValueError("A data de pagamento não pode ser anterior à data da despesa.")
 
         if despesa.data:
             self._validar_data(despesa.data, "despesa")

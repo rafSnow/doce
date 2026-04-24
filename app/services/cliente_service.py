@@ -63,6 +63,8 @@ class ClienteService:
                 conn=conn
             )
             
+        from app.core import event_bus
+        event_bus.emit("cliente.salvo", cliente_id=cliente.id)
         return cliente.id
 
     def listar(self, nome: str = "") -> List[Cliente]:
@@ -78,7 +80,47 @@ class ClienteService:
         rows = conn.execute(q, params).fetchall()
         return [Cliente(id=r["id"], nome=r["nome"], contato=r["contato"]) for r in rows]
 
+    def get_resumo_cliente(self, cliente_id: int) -> dict:
+        """Retorna estatísticas de compras do cliente."""
+        from app.db.connection import get_connection
+        conn = get_connection()
+        row = conn.execute(
+            """
+            SELECT 
+                COUNT(id) as total_pedidos,
+                COALESCE(SUM(valor_total), 0) as total_gasto,
+                MAX(data_pedido) as ultimo_pedido
+            FROM pedido
+            WHERE cliente_id = ?
+            """,
+            (cliente_id,),
+        ).fetchone()
+        
+        return {
+            "total_pedidos": row["total_pedidos"],
+            "total_gasto": row["total_gasto"],
+            "ultimo_pedido": row["ultimo_pedido"]
+        }
+
     def excluir(self, id: int) -> None:
+        from app.db.connection import get_connection
+        conn_check = get_connection()
+        
+        # Validação: verifica pedidos vinculados
+        pedidos = conn_check.execute(
+            "SELECT COUNT(*) as total FROM pedido WHERE cliente_id = ?", (id,)
+        ).fetchone()
+        
+        if pedidos["total"] > 0:
+            cliente = self.obter_por_nome_normalizado(
+                conn_check.execute("SELECT nome FROM cliente WHERE id = ?", (id,)).fetchone()["nome"]
+            )
+            nome = cliente.nome if cliente else f"ID {id}"
+            raise ValueError(f"Cliente '{nome}' possui {pedidos['total']} pedido(s) vinculado(s). Não é possível excluir.")
+
         with transacao() as conn:
             conn.execute("DELETE FROM cliente WHERE id=?", (id,))
             AuditoriaService.registrar("cliente", "DELETE", id, conn=conn)
+
+        from app.core import event_bus
+        event_bus.emit("cliente.excluido", cliente_id=id)

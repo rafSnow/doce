@@ -123,6 +123,23 @@ class InsumoService:
         return None
 
     def excluir(self, id: int) -> None:
+        from app.db.connection import get_connection
+        conn = get_connection()
+        
+        # Regra I-07: Verifica se o insumo está vinculado a algum produto
+        vinculos = conn.execute("""
+            SELECT p.nome 
+            FROM produto_insumo pi
+            JOIN produto p ON p.id = pi.produto_id
+            WHERE pi.insumo_id = ?
+        """, (id,)).fetchall()
+        
+        if vinculos:
+            insumo = self.get_by_id(id)
+            nome_insumo = insumo.nome if insumo else f"ID {id}"
+            nomes_produtos = ", ".join([r["nome"] for r in vinculos])
+            raise ValueError(f"Insumo '{nome_insumo}' está vinculado aos produtos: {nomes_produtos}. Remova-o dos produtos antes de excluir.")
+
         with transacao() as conn:
             conn.execute("DELETE FROM insumo WHERE id=?", (id,))
             AuditoriaService.registrar("insumo", "DELETE", id, conn=conn)
@@ -164,6 +181,36 @@ class InsumoService:
         query += " ORDER BY h.data_alteracao DESC, h.id DESC"
         rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def calcular_capacidade_producao(self, produto_id: int) -> int:
+        """Calcula quantas unidades do produto podem ser produzidas com o estoque atual (REGRA E-08)."""
+        from app.services.produto_service import ProdutoService
+        produto = ProdutoService().get_by_id(produto_id)
+        if not produto or not produto.insumos:
+            return 0
+
+        capacidades = []
+        rendimento = produto.rendimento_receita or 1
+
+        for pi in produto.insumos:
+            insumo = self.get_by_id(pi.insumo_id)
+            if not insumo:
+                continue
+            
+            # qtd_usada_por_unidade = pi.quantidade_usada_receita / rendimento
+            if pi.quantidade_usada_receita > 0:
+                # Quantas receitas inteiras/parciais podemos fazer
+                receitas_possiveis = insumo.quantidade_disponivel / pi.quantidade_usada_receita
+                # Quantas unidades totais isso representa
+                unidades_possiveis = receitas_possiveis * rendimento
+                capacidades.append(unidades_possiveis)
+            else:
+                continue
+
+        if not capacidades:
+            return 0
+
+        return int(min(capacidades))
 
     def _row_to_model(self, row) -> Insumo:
         return Insumo(

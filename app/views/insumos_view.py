@@ -32,6 +32,7 @@ from app.ui.theme import (
     _card,
     _combo,
     _entry,
+    _optmenu,
     _sep,
     _treeview_style,
 )
@@ -179,26 +180,26 @@ class InsumosPanel(ctk.CTkFrame):
                      font=ctk.CTkFont(size=10, weight="bold")
                      ).grid(row=0, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="w")
 
-        ctk.CTkLabel(inner, text="Nome", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Nome*", text_color=TEXT_SECONDARY
                      ).grid(row=1, column=0, padx=12, pady=(5, 2), sticky="w")
         self.entry_nome = _entry(inner, placeholder_text="Texto")
         self.entry_nome.grid(row=2, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="ew")
 
-        ctk.CTkLabel(inner, text="Categoria", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Categoria*", text_color=TEXT_SECONDARY
                      ).grid(row=3, column=0, padx=12, pady=(5, 2), sticky="w")
         self.combo_categoria = _combo(inner, values=["Ingrediente", "Embalagem", "Gás"])
         self.combo_categoria.grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="ew")
 
-        ctk.CTkLabel(inner, text="Peso/Volume Total", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Peso/Volume Total*", text_color=TEXT_SECONDARY
                      ).grid(row=5, column=0, padx=12, pady=(5, 2), sticky="w")
-        ctk.CTkLabel(inner, text="Unidade", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Unidade*", text_color=TEXT_SECONDARY
                      ).grid(row=5, column=1, padx=12, pady=(5, 2), sticky="w")
         self.entry_peso = _entry(inner, placeholder_text="Numero")
         self.entry_peso.grid(row=6, column=0, padx=12, pady=(0, 10), sticky="ew")
         self.combo_medida = _combo(inner, values=[UnidadeMedida.G.value, UnidadeMedida.ML.value, UnidadeMedida.UNIDADE.value], width=120)
         self.combo_medida.grid(row=6, column=1, padx=12, pady=(0, 10), sticky="ew")
 
-        ctk.CTkLabel(inner, text="Preço de Compra Atual (R$)", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Preço de Compra Atual (R$)*", text_color=TEXT_SECONDARY
                      ).grid(row=7, column=0, padx=12, pady=(5, 2), sticky="w")
         self.entry_preco = _entry(inner, placeholder_text="0,00")
         self.entry_preco.grid(row=8, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="ew")
@@ -230,6 +231,9 @@ class InsumosPanel(ctk.CTkFrame):
         self.btn_cancelar = _btn_ghost(fa, "Cancelar",  self._ocultar_form)
         for b in (self.btn_cancelar, self.btn_excluir, self.btn_salvar):
             b.pack(side="right", padx=5)
+
+        ctk.CTkLabel(inner, text="* Campos obrigatórios", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).grid(row=13, column=0, columnspan=2, padx=12, pady=(0, 5), sticky="w")
 
         # --- FORM COMPRA ---
         self._frame_compra.bind("<Escape>", lambda e: self._ocultar_form())
@@ -359,9 +363,11 @@ class InsumosPanel(ctk.CTkFrame):
                 fmt_moeda(i.custo_por_unidade, 4),
                 i.quantidade_disponivel,
             ), tags=tag)
+        
+        # Regra I-05: callback on_estoque_alerta_change recebe o total de itens com estoque baixo
         if callable(self._on_estoque_alerta):
-            total = sum(1 for i in insumos if i.quantidade_disponivel <= i.quantidade_minima)
-            self._on_estoque_alerta(total)
+            total_baixo = sum(1 for i in insumos if i.quantidade_disponivel <= i.quantidade_minima)
+            self._on_estoque_alerta(total_baixo)
 
     def _on_double_click(self, event):
         item = self.tree.identify_row(event.y)
@@ -414,8 +420,11 @@ class InsumosPanel(ctk.CTkFrame):
         nome = self.entry_nome.get()
         if messagebox.askyesno("Confirmar exclusão",
                                f"Excluir o insumo '{nome}'?\nEsta ação não pode ser desfeita."):
-            self.service.excluir(self.current_insumo_id)
-            self._carregar_dados(); self._ocultar_form()
+            try:
+                self.service.excluir(self.current_insumo_id)
+                self._carregar_dados(); self._ocultar_form()
+            except ValueError as e:
+                messagebox.showerror("Erro de Vínculo", str(e))
 
     def _on_excluir_selecionado(self):
         sel = self.tree.selection()
@@ -424,10 +433,13 @@ class InsumosPanel(ctk.CTkFrame):
         nome    = self.tree.item(sel[0])["values"][1]
         if messagebox.askyesno("Confirmar exclusão",
                                f"Excluir o insumo '{nome}'?\nEsta ação não pode ser desfeita."):
-            self.service.excluir(item_id)
-            self._carregar_dados()
-            if self.current_insumo_id == item_id:
-                self._ocultar_form()
+            try:
+                self.service.excluir(item_id)
+                self._carregar_dados()
+                if self.current_insumo_id == item_id:
+                    self._ocultar_form()
+            except ValueError as e:
+                messagebox.showerror("Erro de Vínculo", str(e))
 
     def _on_salvar(self):
         try:
@@ -471,6 +483,7 @@ class InsumosPanel(ctk.CTkFrame):
             
             insumo.quantidade_disponivel += qtd_compra
             insumo.preco_compra = novo_preco_cadastro
+            # Regra I-06: define data_compra automática na compra
             insumo.data_compra = data_compra
             
             self.service.salvar(insumo)
@@ -531,6 +544,17 @@ class InsumosPanel(ctk.CTkFrame):
             messagebox.showerror("Exportar Excel", str(e))
 
     # ── utilitários ───────────────────────────────────────────────────────
+    def _aplicar_mascara_data(self, event):
+        entry  = event.widget
+        digits = "".join(ch for ch in entry.get() if ch.isdigit())[:8]
+        partes = []
+        if len(digits) >= 2: partes.append(digits[:2])
+        elif digits:          partes.append(digits)
+        if len(digits) >= 4:  partes.append(digits[2:4])
+        elif len(digits) > 2: partes.append(digits[2:])
+        if len(digits) > 4:   partes.append(digits[4:])
+        entry.delete(0, "end"); entry.insert(0, "/".join(partes))
+
     def _aplicar_mascara_decimal(self, event):
         e   = event.widget
         raw = e.get().replace(".", ",")
@@ -747,6 +771,9 @@ class InsumosView(ctk.CTkFrame):
         self.btn_novo   = _btn_accent(self._action_bar, "+ Novo Insumo", self._on_novo)
         self.btn_novo.pack(side="left", padx=4)
 
+        self.btn_posicao = _btn_ghost(self._action_bar, "Posição de Estoque", self._on_posicao_estoque)
+        self.btn_posicao.pack(side="left", padx=4)
+
         self.btn_export = _btn_ghost(self._action_bar, "Exportar Excel", self._on_export)
         self.btn_export.pack(side="left", padx=4)
 
@@ -844,6 +871,47 @@ class InsumosView(ctk.CTkFrame):
     def _on_novo(self):
         p = self._active_panel()
         if p: p.go_new()
+
+    def _on_posicao_estoque(self):
+        insumos = InsumoService().listar()
+        if not insumos:
+            messagebox.showinfo("Posição de Estoque", "Não há insumos para exportar."); return
+            
+        arq = filedialog.asksaveasfilename(
+            title="Salvar posição de estoque", defaultextension=".xlsx",
+            filetypes=[("Planilha Excel", "*.xlsx")],
+            initialfile=f"posicao_estoque_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+        )
+        if not arq: return
+        
+        try:
+            wb = Workbook(); ws = wb.active; ws.title = "Estoque Atual"
+            hdr = ["Nome", "Categoria", "Qtd Disponível", "Unidade", "Qtd Mínima", "Status", "Custo Un.", "Valor em Estoque"]
+            ws.append(hdr)
+            
+            for c in ws[1]:
+                c.font = Font(bold=True, color="FFFFFF")
+                c.fill = PatternFill("solid", fgColor="C96B7A")
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                
+            for i in insumos:
+                status = "OK"
+                if i.quantidade_disponivel <= 0: status = "CRÍTICO"
+                elif i.quantidade_disponivel <= i.quantidade_minima: status = "ALERTA"
+                
+                valor_estoque = i.quantidade_disponivel * i.custo_por_unidade
+                
+                ws.append([
+                    i.nome, i.categoria, i.quantidade_disponivel, i.unidade_medida,
+                    i.quantidade_minima, status, i.custo_por_unidade, valor_estoque
+                ])
+                
+            for col in ws.columns:
+                ws.column_dimensions[col[0].column_letter].width = 18
+            ws.freeze_panes = "A2"; wb.save(arq)
+            messagebox.showinfo("Sucesso", f"Posição de estoque exportada para:\n{arq}")
+        except Exception as e:
+            messagebox.showerror("Erro na Exportação", str(e))
 
     def _on_export(self):
         p = self._active_panel()

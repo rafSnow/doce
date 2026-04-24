@@ -17,6 +17,7 @@ class RendimentoService:
         fin_iso = normalizar_data_iso(rendimento.pag_final_data) if rendimento.pag_final_data else None
 
         with transacao() as conn:
+            pid = rendimento.pedido_id if rendimento.pedido_id else None
             if rendimento.id:
                 conn.execute(
                     """
@@ -38,7 +39,7 @@ class RendimentoService:
                         rendimento.pag_final_forma,
                         rendimento.pag_final_status,
                         rendimento.responsavel,
-                        rendimento.pedido_id,
+                        pid,
                         rendimento.id,
                     ),
                 )
@@ -50,7 +51,7 @@ class RendimentoService:
                         "cliente_id": rendimento.cliente_id,
                         "pag_inicial_valor": rendimento.pag_inicial_valor,
                         "pag_final_valor": rendimento.pag_final_valor,
-                        "pedido_id": rendimento.pedido_id,
+                        "pedido_id": pid,
                     },
                     conn=conn,
                 )
@@ -75,7 +76,7 @@ class RendimentoService:
                         rendimento.pag_final_forma,
                         rendimento.pag_final_status,
                         rendimento.responsavel,
-                        rendimento.pedido_id,
+                        pid,
                     ),
                 )
                 rendimento.id = cur.lastrowid

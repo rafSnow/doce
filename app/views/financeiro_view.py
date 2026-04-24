@@ -204,9 +204,10 @@ class DespesasPanel(ctk.CTkFrame):
         cg.grid(row=0, column=0, columnspan=2, padx=4, pady=(0, 10), sticky="ew")
         cg.grid_columnconfigure((1, 3), weight=1)
 
-        ctk.CTkLabel(cg, text="DADOS GERAIS", text_color=TEXT_MUTED,
-                     font=ctk.CTkFont(size=10, weight="bold")
-                     ).grid(row=0, column=0, columnspan=4, padx=14, pady=(10, 8), sticky="w")
+        self.lbl_form_title = ctk.CTkLabel(cg, text="DADOS GERAIS", text_color=TEXT_MUTED,
+                                           font=ctk.CTkFont(size=10, weight="bold")
+                                           )
+        self.lbl_form_title.grid(row=0, column=0, columnspan=4, padx=14, pady=(10, 8), sticky="w")
 
         for label, r, c, attr, ph, bind in [
             ("Data*",      0, 0, "entry_data",  "DD/MM/AAAA", _mask_date),
@@ -273,6 +274,9 @@ class DespesasPanel(ctk.CTkFrame):
         self.btn_cancel  = _btn_ghost(fa,  "Cancelar", self._show_lista)
         for b in (self.btn_cancel, self.btn_excluir, self.btn_salvar):
             b.pack(side="right", padx=5)
+
+        ctk.CTkLabel(self._frame_form, text="* Campos obrigatórios", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).grid(row=4, column=0, columnspan=2, padx=14, pady=(0, 5), sticky="w")
 
     # ── transições ────────────────────────────────────────────────────────
     def _show_lista(self):
@@ -573,12 +577,27 @@ class RendimentosPanel(ctk.CTkFrame):
             setattr(self, attr_s, es)
 
         fa = ctk.CTkFrame(self._frame_form, fg_color="transparent")
-        fa.grid(row=1, column=0, columnspan=2, padx=4, pady=(0, 4), sticky="e")
+        fa.grid(row=1, column=0, columnspan=2, padx=4, pady=(0, 4), sticky="ew")
+        
+        # Elementos de link para pedido (Regra R-01)
+        self.link_frame = ctk.CTkFrame(fa, fg_color="transparent")
+        self.link_frame.pack(side="left", padx=10)
+        
+        self.lbl_link_pedido = ctk.CTkLabel(self.link_frame, text="", text_color=ACCENT, 
+                                            font=ctk.CTkFont(size=12, weight="bold"))
+        self.lbl_link_pedido.pack(side="left", padx=5)
+        
+        self.btn_ir_pedido = _btn_ghost(self.link_frame, "Ir ao Pedido", self._ir_ao_pedido, width=100)
+        self.btn_ir_pedido.pack(side="left", padx=5)
+
         self.btn_salvar  = _btn_accent(fa, "Salvar",   self._on_save)
         self.btn_excluir = _btn_danger(fa, "Excluir",  self._on_delete)
         self.btn_cancel  = _btn_ghost(fa,  "Cancelar", self._show_lista)
         for b in (self.btn_cancel, self.btn_excluir, self.btn_salvar):
             b.pack(side="right", padx=5)
+
+        ctk.CTkLabel(self._frame_form, text="* Campos obrigatórios", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).grid(row=2, column=0, columnspan=2, padx=14, pady=(0, 5), sticky="w")
 
     # ── transições ────────────────────────────────────────────────────────
     def _show_lista(self):
@@ -598,6 +617,37 @@ class RendimentosPanel(ctk.CTkFrame):
         self.cb_cliente.focus_set()
 
     # ── dados ─────────────────────────────────────────────────────────────
+    def _set_form_readonly(self, readonly: bool, pedido_id: int | None = None):
+        st = "disabled" if readonly else "normal"
+        self.cb_cliente.configure(state=st)
+        self.entry_resp.configure(state=st)
+        self.entry_ini_v.configure(state=st)
+        self.entry_ini_d.configure(state=st)
+        self.cb_ini_f.configure(state=st)
+        self.cb_ini_s.configure(state=st)
+        self.entry_fin_v.configure(state=st)
+        self.entry_fin_d.configure(state=st)
+        self.cb_fin_f.configure(state=st)
+        self.cb_fin_s.configure(state=st)
+        
+        if readonly and pedido_id:
+            self.lbl_link_pedido.configure(text=f"Para editar, acesse o Pedido #{pedido_id}.")
+            self.link_frame.pack(side="left", padx=10)
+        else:
+            self.link_frame.pack_forget()
+
+    def _ir_ao_pedido(self):
+        """Regra R-01: Navega para a view de pedidos e abre o pedido atual."""
+        if not self.current_pedido_id_vinc: return
+        
+        # Obtém referência para a MainWindow através da hierarquia de widgets
+        try:
+            main_window = self.winfo_toplevel()
+            if hasattr(main_window, "show_pedidos_view"):
+                main_window.show_pedidos_view(pedido_id=self.current_pedido_id_vinc)
+        except Exception as e:
+            messagebox.showerror("Erro de Navegação", f"Não foi possível abrir o pedido: {e}")
+
     def _load_clients(self):
         self.cliente_map.clear(); labels = []
         for c in self.cliente_service.listar():
@@ -630,6 +680,8 @@ class RendimentosPanel(ctk.CTkFrame):
 
     def _reset_form(self):
         self.current_id = None
+        self.current_pedido_id_vinc = None
+        self._set_form_readonly(False)
         vals = self.cb_cliente.cget("values")
         if vals: self.cb_cliente.set(vals[0])
         self.entry_resp.delete(0,"end")
@@ -648,7 +700,10 @@ class RendimentosPanel(ctk.CTkFrame):
         if not sel: return
         r = self.service.get_by_id(int(self.tree.item(sel[0])["values"][0]))
         if not r: return
-        self._reset_form(); self.current_id = r.id
+        self._reset_form()
+        self.current_id = r.id
+        self.current_pedido_id_vinc = r.pedido_id
+        
         if r.cliente_id in self.cliente_map:
             self.cb_cliente.set(self.cliente_map[r.cliente_id])
         self.entry_resp.delete(0,"end"); self.entry_resp.insert(0, r.responsavel or "")
@@ -661,13 +716,11 @@ class RendimentosPanel(ctk.CTkFrame):
         self.cb_fin_f.set(r.pag_final_forma or FormaPagamento.PIX.value)
         self.cb_fin_s.set(r.pag_final_status or StatusPagamento.PENDENTE.value)
         
-        # ERP integration: block editing if originated from a Pedido
+        # ERP integration: block editing if originated from a Pedido (Rule R-01)
         if r.pedido_id:
+            self._set_form_readonly(True, pedido_id=r.pedido_id)
             self.btn_salvar.configure(state="disabled")
             self.btn_excluir.configure(state="disabled")
-            messagebox.showinfo("Registro Automático", 
-                                "Este rendimento está vinculado ao Pedido #" + str(r.pedido_id) + ".\n"
-                                "Para alterá-lo, edite o Pedido correspondente.")
         else:
             self.btn_salvar.configure(state="normal")
             self.btn_excluir.configure(state="normal")

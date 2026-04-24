@@ -37,6 +37,7 @@ class NavButton(ctk.CTkFrame):
     ICON_MAP = {
         "Dashboard":     "⊞",
         "Insumos":       "⊟",
+        "Clientes":      "👥",
         "Produtos":      "⊡",
         "Pedidos":       "⊠",
         "Financeiro":    "⊛",
@@ -163,10 +164,15 @@ class MainWindow(ctk.CTk):
 
         self._nav_buttons: dict[str, NavButton] = {}
         self._active_view = ""
+        self._event_handlers: list[tuple[str, callable]] = []
 
         self._build_sidebar()
         self._build_content()
         self._atualizar_badge_alerta_insumos()
+        
+        # Listeners globais de UI (Regra CF-07)
+        event_bus.on("estoque.atualizado", self._atualizar_badge_alerta_insumos)
+        
         self.show_dashboard_view()
         self.bind("<Escape>", self._sair_tela_cheia)
         self.bind("<F11>", self._alternar_tela_cheia)
@@ -280,6 +286,7 @@ class MainWindow(ctk.CTk):
         nav_main = [
             ("Dashboard",   self.show_dashboard_view),
             ("Insumos",     self.show_insumos_view),
+            ("Clientes",    self.show_clientes_view),
             ("Produtos",    self.show_produtos_view),
             ("Pedidos",     self.show_pedidos_view),
             ("Financeiro",  self.show_financeiro_view),
@@ -339,6 +346,9 @@ class MainWindow(ctk.CTk):
         self._active_view = nome
 
     def _clear_content(self):
+        for evento, handler in self._event_handlers:
+            event_bus.off(evento, handler)
+        self._event_handlers.clear()
         for w in self.content_frame.winfo_children():
             w.destroy()
 
@@ -358,16 +368,23 @@ class MainWindow(ctk.CTk):
         view = DashboardView(self.content_frame)
         view.grid(row=0, column=0, sticky="nsew")
         
-        event_bus.on("insumo.salvo", view.refresh)
-        event_bus.on("insumo.excluido", view.refresh)
-        event_bus.on("produto.salvo", view.refresh)
-        event_bus.on("produto.excluido", view.refresh)
-        event_bus.on("pedido.salvo", view.refresh)
-        event_bus.on("pedido.excluido", view.refresh)
-        event_bus.on("despesa.salva", view.refresh)
-        event_bus.on("despesa.excluida", view.refresh)
-        event_bus.on("rendimento.salvo", view.refresh)
-        event_bus.on("rendimento.excluido", view.refresh)
+        handlers = [
+            ("insumo.salvo", view.refresh),
+            ("insumo.excluido", view.refresh),
+            ("cliente.salvo", view.refresh),
+            ("cliente.excluido", view.refresh),
+            ("produto.salvo", view.refresh),
+            ("produto.excluido", view.refresh),
+            ("pedido.salvo", view.refresh),
+            ("pedido.excluido", view.refresh),
+            ("despesa.salva", view.refresh),
+            ("despesa.excluida", view.refresh),
+            ("rendimento.salvo", view.refresh),
+            ("rendimento.excluido", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
 
     def show_insumos_view(self):
         self._clear_content()
@@ -378,8 +395,30 @@ class MainWindow(ctk.CTk):
             on_estoque_alerta_change=self._atualizar_badge_alerta_insumos,
         )
         view.grid(row=0, column=0, sticky="nsew")
-        event_bus.on("insumo.salvo", view.refresh)
-        event_bus.on("insumo.excluido", view.refresh)
+        
+        handlers = [
+            ("insumo.salvo", view.refresh),
+            ("insumo.excluido", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
+
+    def show_clientes_view(self):
+        self._clear_content()
+        self._set_active("Clientes")
+        from app.views.clientes_view import ClientesView
+        view = ClientesView(self.content_frame)
+        view.grid(row=0, column=0, sticky="nsew")
+        
+        handlers = [
+            ("cliente.salvo", view.refresh),
+            ("cliente.excluido", view.refresh),
+            ("pedido.salvo", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
 
     def show_produtos_view(self):
         self._clear_content()
@@ -388,22 +427,42 @@ class MainWindow(ctk.CTk):
         from app.views.produtos_view import ProdutosView
         view = ProdutosView(self.content_frame)
         view.grid(row=0, column=0, sticky="nsew")
-        event_bus.on("produto.salvo", view.refresh)
-        event_bus.on("produto.excluido", view.refresh)
-        event_bus.on("insumo.salvo", view.refresh)
-        event_bus.on("insumo.excluido", view.refresh)
+        
+        handlers = [
+            ("produto.salvo", view.refresh),
+            ("produto.excluido", view.refresh),
+            ("insumo.salvo", view.refresh),
+            ("insumo.excluido", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
 
-    def show_pedidos_view(self):
+    def show_pedidos_view(self, pedido_id: int | None = None, cliente_nome: str | None = None):
         self._clear_content()
         self._set_active("Pedidos")
         self._atualizar_badge_alerta_insumos()
         from app.views.pedidos_view import PedidosView
         view = PedidosView(self.content_frame)
         view.grid(row=0, column=0, sticky="nsew")
-        event_bus.on("pedido.salvo", view.refresh)
-        event_bus.on("pedido.excluido", view.refresh)
-        event_bus.on("produto.salvo", view.refresh)
-        event_bus.on("produto.excluido", view.refresh)
+        
+        if pedido_id:
+            self.after(100, lambda: view.abrir_pedido_direto(pedido_id))
+        elif cliente_nome:
+            view.filtro_cliente.delete(0, "end")
+            view.filtro_cliente.insert(0, cliente_nome)
+            view._carregar_pedidos()
+
+        handlers = [
+            ("pedido.salvo", view.refresh),
+            ("pedido.excluido", view.refresh),
+            ("produto.salvo", view.refresh),
+            ("produto.excluido", view.refresh),
+            ("cliente.salvo", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
 
     def show_financeiro_view(self):
         self._clear_content()
@@ -412,10 +471,18 @@ class MainWindow(ctk.CTk):
         from app.views.financeiro_view import FinanceiroView
         view = FinanceiroView(self.content_frame)
         view.grid(row=0, column=0, sticky="nsew")
-        event_bus.on("despesa.salva", view.refresh)
-        event_bus.on("despesa.excluida", view.refresh)
-        event_bus.on("rendimento.salvo", view.refresh)
-        event_bus.on("rendimento.excluido", view.refresh)
+        
+        handlers = [
+            ("despesa.salva", view.refresh),
+            ("despesa.excluida", view.refresh),
+            ("rendimento.salvo", view.refresh),
+            ("rendimento.excluido", view.refresh),
+            ("cliente.salvo", view.refresh),
+            ("cliente.excluido", view.refresh),
+        ]
+        for evento, handler in handlers:
+            event_bus.on(evento, handler)
+            self._event_handlers.append((evento, handler))
 
     def show_config_view(self):
         self._clear_content()

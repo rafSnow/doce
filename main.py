@@ -6,7 +6,7 @@ from tkinter import messagebox
 from app.db.connection import get_db_path
 from app.db.schema import create_tables
 from app.views.main_window import MainWindow
-import app.core.listeners
+import app.erp_handlers
 
 
 def _configurar_logging() -> None:

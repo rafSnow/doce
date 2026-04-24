@@ -38,6 +38,9 @@ class ProdutoService:
         produto.preco_venda_unitario = produto.custo_unitario * markup_mult
 
     def salvar(self, produto: Produto) -> int:
+        if not produto.insumos:
+            raise ValueError("O produto deve ter ao menos um insumo na ficha técnica.")
+
         with transacao() as conn:
             self._calcular_valores(produto, conn=conn)
             

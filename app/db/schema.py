@@ -208,6 +208,26 @@ def create_tables():
     if "pedido_id" not in rendimento_cols:
         conn.execute("ALTER TABLE rendimento ADD COLUMN pedido_id INTEGER REFERENCES pedido(id) ON DELETE CASCADE")
 
+    # Migração ERP: Sincroniza pagamentos de pedidos existentes para a tabela de rendimentos
+    conn.execute(
+        f"""
+        INSERT INTO rendimento (
+            cliente_id, responsavel,
+            pag_inicial_valor, pag_inicial_data, pag_inicial_forma, pag_inicial_status,
+            pag_final_valor, pag_final_data, pag_final_forma, pag_final_status,
+            pedido_id
+        )
+        SELECT 
+            cliente_id, responsavel,
+            pag_inicial_valor, pag_inicial_data, pag_inicial_forma, pag_inicial_status,
+            pag_final_valor, pag_final_data, pag_final_forma, pag_final_status,
+            id
+        FROM pedido p
+        WHERE NOT EXISTS (SELECT 1 FROM rendimento r WHERE r.pedido_id = p.id)
+          AND (pag_inicial_valor > 0 OR pag_final_valor > 0)
+        """
+    )
+
     # Índices de performance (Sprint 8.6)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cliente_nome ON cliente(nome)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_insumo_nome ON insumo(nome)")

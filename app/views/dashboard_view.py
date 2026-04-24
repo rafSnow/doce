@@ -17,6 +17,7 @@ from app.ui.theme import (
     CARD_BORDER,
     COLOR_BLUE,
     COLOR_GREEN,
+    COLOR_RED,
     COLOR_ORANGE,
     COLOR_PURPLE,
     HEADER_BG,
@@ -312,32 +313,56 @@ class DashboardView(ctk.CTkFrame):
     def _build_cards(self):
         cards_outer = ctk.CTkFrame(self, fg_color="transparent")
         cards_outer.grid(row=4, column=0, sticky="ew", padx=16, pady=(12, 0))
-        cards_outer.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
-
+        
+        # Primeira linha (4 cards)
+        cards_outer.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        
         self._card_saldo    = StatCard(cards_outer, "Saldo Realizado",  COLOR_GREEN,  "Receitas confirmadas")
         self._card_receber  = StatCard(cards_outer, "A Receber",        COLOR_BLUE,   "Pedidos pendentes")
         self._card_pagar    = StatCard(cards_outer, "Falta Pagar",      COLOR_ORANGE, "Despesas pendentes")
         self._card_previsto = StatCard(cards_outer, "Saldo Previsto",   COLOR_PURPLE, "Projeção do período")
-        self._card_lucro    = StatCard(cards_outer, "Lucro em Vendas",  ACCENT,       "Venda - custo dos produtos")
 
-        self._card_saldo.grid   (row=0, column=0, padx=6, pady=0, sticky="nsew")
-        self._card_receber.grid (row=0, column=1, padx=6, pady=0, sticky="nsew")
-        self._card_pagar.grid   (row=0, column=2, padx=6, pady=0, sticky="nsew")
-        self._card_previsto.grid(row=0, column=3, padx=6, pady=0, sticky="nsew")
-        self._card_lucro.grid   (row=0, column=4, padx=6, pady=0, sticky="nsew")
+        self._card_saldo.grid   (row=0, column=0, padx=6, pady=(0, 10), sticky="nsew")
+        self._card_receber.grid (row=0, column=1, padx=6, pady=(0, 10), sticky="nsew")
+        self._card_pagar.grid   (row=0, column=2, padx=6, pady=(0, 10), sticky="nsew")
+        self._card_previsto.grid(row=0, column=3, padx=6, pady=(0, 10), sticky="nsew")
+        
+        # Segunda linha (3 cards métricos)
+        row2 = ctk.CTkFrame(cards_outer, fg_color="transparent")
+        row2.grid(row=1, column=0, columnspan=4, sticky="ew")
+        row2.grid_columnconfigure((0, 1, 2), weight=1)
+        
+        self._card_lucro   = StatCard(row2, "Lucro em Vendas",   ACCENT,       "Venda - custo dos produtos")
+        self._card_margem  = StatCard(row2, "Margem de Lucro",  COLOR_PURPLE, "Lucro / Faturamento")
+        self._card_ticket  = StatCard(row2, "Ticket Médio",     COLOR_BLUE,   "Faturamento / Pedidos")
+        
+        self._card_lucro.grid (row=0, column=0, padx=6, pady=0, sticky="nsew")
+        self._card_margem.grid(row=0, column=1, padx=6, pady=0, sticky="nsew")
+        self._card_ticket.grid(row=0, column=2, padx=6, pady=0, sticky="nsew")
 
-        # card investido (largura total)
+        # REGRA E-04: Alertas de Estoque
+        self._frame_alertas = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12, border_width=1, border_color=CARD_BORDER)
+        self._frame_alertas.grid(row=5, column=0, padx=22, pady=(15, 0), sticky="ew")
+        self._frame_alertas.grid_columnconfigure(0, weight=1)
+        
+        ctk.CTkLabel(self._frame_alertas, text="⚠ ALERTAS DE ESTOQUE", text_color=COLOR_ORANGE,
+                     font=ctk.CTkFont(size=10, weight="bold")).grid(row=0, column=0, padx=16, pady=(10, 5), sticky="w")
+        
+        self._container_alertas = ctk.CTkFrame(self._frame_alertas, fg_color="transparent")
+        self._container_alertas.grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+
+        # card investido
         self._card_investido = InvestedCard(self)
-        self._card_investido.grid(row=5, column=0, padx=22, pady=(10, 0), sticky="ew")
+        self._card_investido.grid(row=6, column=0, padx=22, pady=(15, 0), sticky="ew")
 
     # ── Gráficos ──────────────────────────────────────────────────────────
     def _build_charts(self):
         charts_outer = ctk.CTkFrame(self, fg_color="transparent")
-        charts_outer.grid(row=6, column=0, sticky="nsew", padx=16, pady=(10, 16))
+        charts_outer.grid(row=7, column=0, sticky="nsew", padx=16, pady=(10, 16))
         charts_outer.grid_columnconfigure(0, weight=2)
         charts_outer.grid_columnconfigure(1, weight=1)
         charts_outer.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
 
         self._cf_barras = ChartFrame(
             charts_outer,
@@ -456,9 +481,45 @@ class DashboardView(ctk.CTkFrame):
         self._card_pagar.set_value(self._fmt(resumo.falta_pagar))
         self._card_previsto.set_value(self._fmt(resumo.saldo_previsto))
         self._card_lucro.set_value(self._fmt(resumo.lucro_total_vendas))
+        
+        # Ticket Médio
+        self._card_ticket.set_value(self._fmt(resumo.ticket_medio))
+        
+        # Margem de Lucro (Regra DA-13)
+        margem = resumo.margem_lucro_perc
+        cor_margem = COLOR_RED
+        if margem >= 30:
+            cor_margem = COLOR_PURPLE
+        elif margem >= 10:
+            cor_margem = COLOR_ORANGE
+            
+        self._card_margem.set_value(f"{margem:.1f}%".replace(".", ","))
+        self._card_margem._lbl_value.configure(text_color=cor_margem)
+
         self._card_investido.set_values(
             self._fmt(resumo.total_investido),
+            self._fmt(resumo.investido_insumos),
+            self._fmt(resumo.investido_investimentos),
         )
+
+        # REGRA E-04: Carregar Alertas
+        from app.services.insumo_service import InsumoService
+        insumos = InsumoService().listar()
+        alertas = [i for i in insumos if i.quantidade_disponivel <= i.quantidade_minima]
+        
+        for w in self._container_alertas.winfo_children():
+            w.destroy()
+            
+        if not alertas:
+            self._frame_alertas.grid_remove()
+        else:
+            self._frame_alertas.grid()
+            for i, alert in enumerate(alertas):
+                cor = COLOR_RED if alert.quantidade_disponivel <= 0 else COLOR_ORANGE
+                txt = f"• {alert.nome}: {alert.quantidade_disponivel:g} {alert.unidade_medida} (mín: {alert.quantidade_minima:g})"
+                ctk.CTkLabel(self._container_alertas, text=txt, text_color=cor, 
+                             font=ctk.CTkFont(size=12)).grid(row=i//2, column=i%2, sticky="w", padx=10, pady=2)
+
         self._redesenhar()
 
     # ── Gráficos matplotlib ───────────────────────────────────────────────

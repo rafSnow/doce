@@ -12,6 +12,7 @@ from app.models.pedido import Pedido
 from app.models.pedido_item import PedidoItem
 from app.services.configuracao_service import ConfiguracaoService
 from app.services.cliente_service import ClienteService
+from app.services.insumo_service import InsumoService
 from app.services.pedido_service import PedidoService
 from app.services.produto_service import ProdutoService
 from app.services.recibo_service import ReciboService
@@ -43,6 +44,7 @@ class PedidosView(ctk.CTkFrame):
         self.produto_service = ProdutoService()
         self.recibo_service  = ReciboService()
         self.config_service  = ConfiguracaoService()
+        self.insumo_service  = InsumoService()
         self.current_pedido_id = None
         self.current_itens: List[PedidoItem] = []
 
@@ -178,8 +180,10 @@ class PedidosView(ctk.CTkFrame):
 
     def _aplicar_mascara_inteiro(self, event):
         entry = event.widget
+        valor = entry.get()
+        digits = "".join(ch for ch in valor if ch.isdigit())
         entry.delete(0, "end")
-        entry.insert(0, "".join(ch for ch in entry.get() if ch.isdigit()))
+        entry.insert(0, digits)
 
     # ── recibo ────────────────────────────────────────────────────────────
     def _carregar_clientes(self):
@@ -348,7 +352,7 @@ class PedidosView(ctk.CTkFrame):
                      font=ctk.CTkFont(size=10, weight="bold")
                      ).grid(row=0, column=0, columnspan=4, padx=12, pady=(10, 8), sticky="w")
 
-        ctk.CTkLabel(fg, text="Nome do Cliente:", text_color=TEXT_SECONDARY).grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        ctk.CTkLabel(fg, text="Nome do Cliente*:", text_color=TEXT_SECONDARY).grid(row=1, column=0, padx=5, pady=5, sticky="e")
         self.cb_cliente = _combo(fg, values=[], width=300)
         self.cb_cliente.grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
@@ -356,7 +360,7 @@ class PedidosView(ctk.CTkFrame):
                      text_color=TEXT_MUTED, font=ctk.CTkFont(size=10),
                      ).grid(row=3, column=0, columnspan=4, padx=5, pady=(0, 6), sticky="w")
 
-        ctk.CTkLabel(fg, text="Data Pedido:", text_color=TEXT_SECONDARY).grid(row=1, column=2, padx=5, pady=5, sticky="e")
+        ctk.CTkLabel(fg, text="Data Pedido*:", text_color=TEXT_SECONDARY).grid(row=1, column=2, padx=5, pady=5, sticky="e")
         self.entry_data_pedido = _entry(fg, width=150, placeholder_text="DD/MM/AAAA")
         self.entry_data_pedido.grid(row=1, column=3, padx=5, pady=5, sticky="w")
         self.entry_data_pedido.bind("<KeyRelease>", self._aplicar_mascara_data)
@@ -366,9 +370,12 @@ class PedidosView(ctk.CTkFrame):
         self.entry_data_entrega.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         self.entry_data_entrega.bind("<KeyRelease>", self._aplicar_mascara_data)
 
-        ctk.CTkLabel(fg, text="Responsável:", text_color=TEXT_SECONDARY).grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        ctk.CTkLabel(fg, text="Responsável*:", text_color=TEXT_SECONDARY).grid(row=2, column=0, padx=5, pady=5, sticky="e")
         self.entry_responsavel = _entry(fg, width=200, placeholder_text="Texto")
         self.entry_responsavel.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+
+        ctk.CTkLabel(fg, text="* Campos obrigatórios", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).grid(row=4, column=0, columnspan=4, padx=12, pady=(0, 5), sticky="w")
 
         # Pagamentos
         fp = ctk.CTkFrame(self.view_form, fg_color=CARD_BG, corner_radius=12,
@@ -638,7 +645,12 @@ class PedidosView(ctk.CTkFrame):
         self.entry_data_pedido.delete(0, "end")
         self.entry_data_pedido.insert(0, datetime.now().strftime("%d/%m/%Y"))
         self.entry_data_entrega.delete(0, "end")
+        
+        from app.services.configuracao_service import ConfiguracaoService
+        responsavel_padrao = ConfiguracaoService().get_responsavel_padrao()
         self.entry_responsavel.delete(0, "end")
+        self.entry_responsavel.insert(0, responsavel_padrao)
+        
         for prefix in ("ini", "fin"):
             getattr(self, f"entry_pag_{prefix}_valor").delete(0,"end")
             getattr(self, f"entry_pag_{prefix}_valor").insert(0,"0,00")
@@ -654,35 +666,66 @@ class PedidosView(ctk.CTkFrame):
         if not selected: return
         pedido = self.pedido_service.get_by_id(int(self.tree.item(selected[0])["values"][0]))
         if not pedido: return
-        self._novo_pedido()
+        self._preencher_formulario_pedido(pedido)
+        self._show_form(editando=True)
+
+    def _preencher_formulario_pedido(self, pedido: Pedido):
         self.current_pedido_id = pedido.id
-        self.current_itens     = pedido.itens
+        self.current_itens = list(pedido.itens or [])
+
         self.cb_cliente.set(pedido.cliente_nome or "")
-        self.entry_data_pedido.delete(0,"end")
+        self.entry_data_pedido.delete(0, "end")
         self.entry_data_pedido.insert(0, fmt_data(pedido.data_pedido or ""))
-        self.entry_data_entrega.delete(0,"end")
+        self.entry_data_entrega.delete(0, "end")
         self.entry_data_entrega.insert(0, fmt_data(pedido.data_entrega or ""))
-        self.entry_responsavel.delete(0,"end")
+
+        self.entry_responsavel.delete(0, "end")
         self.entry_responsavel.insert(0, pedido.responsavel or "")
+
         for prefix, valor, data, forma, status in [
             ("ini", pedido.pag_inicial_valor, pedido.pag_inicial_data,
              pedido.pag_inicial_forma, pedido.pag_inicial_status),
             ("fin", pedido.pag_final_valor, pedido.pag_final_data,
              pedido.pag_final_forma, pedido.pag_final_status),
         ]:
-            getattr(self, f"entry_pag_{prefix}_valor").delete(0,"end")
+            getattr(self, f"entry_pag_{prefix}_valor").delete(0, "end")
             getattr(self, f"entry_pag_{prefix}_valor").insert(0, fmt_moeda(valor or 0.0))
-            getattr(self, f"entry_pag_{prefix}_data").delete(0,"end")
+            getattr(self, f"entry_pag_{prefix}_data").delete(0, "end")
             getattr(self, f"entry_pag_{prefix}_data").insert(0, fmt_data(data or ""))
             getattr(self, f"cb_pag_{prefix}_forma").set(forma)
             getattr(self, f"cb_pag_{prefix}_status").set(status)
+
         self.btn_excluir.configure(state="normal")
         self._atualizar_lista_itens()
-        self._show_form(editando=True)
 
     def _salvar(self):
         try:
             ped = self._coletar_pedido_formulario()
+            
+            # Regra PD-04: Pré-verificação de estoque
+            insumos_negativos = []
+            consumo_total = {} # insumo_id -> total_consumo
+
+            for item in ped.itens:
+                produto = self.produto_service.get_by_id(item.produto_id)
+                if not produto: continue
+                for pi in produto.insumos:
+                    rendimento = produto.rendimento_receita or 1
+                    qtd_usada = (pi.quantidade_usada_receita * item.quantidade) / rendimento
+                    consumo_total[pi.insumo_id] = consumo_total.get(pi.insumo_id, 0) + qtd_usada
+
+            for insumo_id, total_consumo in consumo_total.items():
+                insumo = self.insumo_service.get_by_id(insumo_id)
+                if insumo and (insumo.quantidade_disponivel - total_consumo) < 0:
+                    falta = abs(insumo.quantidade_disponivel - total_consumo)
+                    insumos_negativos.append(f"{insumo.nome} (Saldo: {insumo.quantidade_disponivel:.2f}, Falta: {falta:.2f})")
+
+            if insumos_negativos:
+                lista = "\n- ".join(insumos_negativos)
+                if not messagebox.askokcancel("Atenção: Estoque Insuficiente", 
+                    f"Os seguintes insumos ficarão com estoque negativo:\n\n- {lista}\n\nDeseja continuar com a gravação do pedido?"):
+                    return
+
             self.pedido_service.salvar(ped)
             messagebox.showinfo("Sucesso", "Pedido salvo com sucesso!")
             self._carregar_clientes(); self._carregar_pedidos(); self._show_lista()

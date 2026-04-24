@@ -13,7 +13,11 @@ class DashboardResumo:
     a_receber: float
     saldo_previsto: float
     total_investido: float
+    investido_insumos: float
+    investido_investimentos: float
     lucro_total_vendas: float
+    ticket_medio: float
+    margem_lucro_perc: float
 
 class DashboardService:
     def get_resumo(self, data_inicio: str = "", data_fim: str = "") -> DashboardResumo:
@@ -26,31 +30,48 @@ class DashboardService:
         despesas_pagas = 0.0
         falta_pagar = 0.0
         total_investido = 0.0
+        investido_insumos = 0.0
+        investido_investimentos = 0.0
         lucro_total_vendas = 0.0
+        
+        pedidos_no_periodo = set()
 
-        pedidos = conn.execute(
+        # Novo fluxo integrado ERP: busca faturamento na tabela de rendimentos
+        rendimentos = conn.execute(
             """
             SELECT
+                pedido_id,
                 pag_inicial_valor, pag_inicial_data, pag_inicial_status,
                 pag_final_valor, pag_final_data, pag_final_status
-            FROM pedido
+            FROM rendimento
             """
         ).fetchall()
 
-        for pedido in pedidos:
-            pag_ini_data = self._parse_data(pedido["pag_inicial_data"])
-            pag_fin_data = self._parse_data(pedido["pag_final_data"])
+        for rend in rendimentos:
+            pag_ini_data = self._parse_data(rend["pag_inicial_data"])
+            pag_fin_data = self._parse_data(rend["pag_final_data"])
+            no_periodo = False
 
-            if pedido["pag_inicial_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
-                total_recebido += float(pedido["pag_inicial_valor"] or 0.0)
-            if pedido["pag_final_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
-                total_recebido += float(pedido["pag_final_valor"] or 0.0)
+            # Pagamento Inicial
+            if rend["pag_inicial_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
+                total_recebido += float(rend["pag_inicial_valor"] or 0.0)
+                no_periodo = True
+            elif rend["pag_inicial_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
+                a_receber += float(rend["pag_inicial_valor"] or 0.0)
+                no_periodo = True
 
-            if pedido["pag_inicial_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
-                a_receber += float(pedido["pag_inicial_valor"] or 0.0)
-            if pedido["pag_final_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
-                a_receber += float(pedido["pag_final_valor"] or 0.0)
+            # Pagamento Final
+            if rend["pag_final_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
+                total_recebido += float(rend["pag_final_valor"] or 0.0)
+                no_periodo = True
+            elif rend["pag_final_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
+                a_receber += float(rend["pag_final_valor"] or 0.0)
+                no_periodo = True
+                
+            if no_periodo and rend["pedido_id"]:
+                pedidos_no_periodo.add(rend["pedido_id"])
 
+        # Cálculo de Lucro: usa LEFT JOIN para não perder itens de produtos excluídos
         itens_pedido = conn.execute(
             """
             SELECT
@@ -60,7 +81,7 @@ class DashboardService:
                 pr.custo_unitario
             FROM pedido_item pi
             JOIN pedido p ON p.id = pi.pedido_id
-            JOIN produto pr ON pr.id = pi.produto_id
+            LEFT JOIN produto pr ON pr.id = pi.produto_id
             """
         ).fetchall()
 
@@ -71,6 +92,7 @@ class DashboardService:
 
             quantidade = float(item["quantidade"] or 0.0)
             preco_venda = float(item["preco_unitario_snapshot"] or 0.0)
+            # Se o produto foi excluído, o custo unitário é assumido como 0 para o cálculo (snapshot de custo ideal para o futuro)
             custo_unitario = float(item["custo_unitario"] or 0.0)
             lucro_total_vendas += (preco_venda - custo_unitario) * quantidade
 
@@ -92,7 +114,11 @@ class DashboardService:
 
             if status == StatusPagamento.PAGO.value:
                 despesas_pagas += valor
-                if categoria in (CategoriaDespesa.INSUMOS.value, CategoriaDespesa.INVESTIMENTOS.value):
+                if categoria == CategoriaDespesa.INSUMOS.value:
+                    investido_insumos += valor
+                    total_investido += valor
+                elif categoria == CategoriaDespesa.INVESTIMENTOS.value:
+                    investido_investimentos += valor
                     total_investido += valor
             elif status == StatusPagamento.PENDENTE.value:
                 falta_pagar += valor
@@ -101,13 +127,22 @@ class DashboardService:
         saldo_atual = total_recebido - despesas_pagas
         saldo_previsto = saldo_atual + a_receber - falta_pagar
         
+        # Regra DA-12: Ticket Médio e Margem
+        count_pedidos = len(pedidos_no_periodo)
+        ticket_medio = total_recebido / count_pedidos if count_pedidos > 0 else 0.0
+        margem_lucro_perc = (lucro_total_vendas / total_recebido * 100) if total_recebido > 0 else 0.0
+        
         return DashboardResumo(
             saldo_atual=saldo_atual,
             falta_pagar=falta_pagar,
             a_receber=a_receber,
             saldo_previsto=saldo_previsto,
             total_investido=total_investido,
+            investido_insumos=investido_insumos,
+            investido_investimentos=investido_investimentos,
             lucro_total_vendas=lucro_total_vendas,
+            ticket_medio=ticket_medio,
+            margem_lucro_perc=margem_lucro_perc
         )
 
     def get_faturamento_vs_despesas_mensal(self, data_inicio: str = "", data_fim: str = "") -> list[dict]:

@@ -15,6 +15,15 @@ def get_db_path() -> str:
 
     return os.path.join(base_dir, "confeitaria.db")
 
+def reset_connection() -> None:
+    global _conn
+    if _conn is not None:
+        try:
+            _conn.close()
+        except:
+            pass
+        _conn = None
+
 def get_connection() -> sqlite3.Connection:
     global _conn
     if _conn is None:
