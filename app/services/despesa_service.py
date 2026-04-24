@@ -22,7 +22,8 @@ class DespesaService:
                     """
                     UPDATE despesa
                        SET data=?, valor=?, descricao=?, categoria=?, responsavel=?,
-                           status=?, forma_pagamento=?, data_pagamento_final=?
+                           status=?, forma_pagamento=?, data_pagamento_final=?,
+                           origem=?, origem_id=?
                      WHERE id=?
                     """,
                     (
@@ -34,6 +35,8 @@ class DespesaService:
                         despesa.status,
                         despesa.forma_pagamento,
                         dt_pag_iso,
+                        despesa.origem,
+                        despesa.origem_id,
                         despesa.id,
                     ),
                 )
@@ -45,6 +48,7 @@ class DespesaService:
                         "valor": despesa.valor,
                         "categoria": despesa.categoria,
                         "status": despesa.status,
+                        "origem": despesa.origem,
                     },
                     conn=conn,
                 )
@@ -53,8 +57,9 @@ class DespesaService:
                     """
                     INSERT INTO despesa (
                         data, valor, descricao, categoria, responsavel,
-                        status, forma_pagamento, data_pagamento_final
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        status, forma_pagamento, data_pagamento_final,
+                        origem, origem_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         data_iso,
@@ -65,6 +70,8 @@ class DespesaService:
                         despesa.status,
                         despesa.forma_pagamento,
                         dt_pag_iso,
+                        despesa.origem,
+                        despesa.origem_id,
                     ),
                 )
                 despesa.id = cur.lastrowid
@@ -76,6 +83,7 @@ class DespesaService:
                         "valor": despesa.valor,
                         "categoria": despesa.categoria,
                         "status": despesa.status,
+                        "origem": despesa.origem,
                     },
                     conn=conn,
                 )
@@ -120,6 +128,17 @@ class DespesaService:
         from app.db.connection import get_connection
         conn = get_connection()
         row = conn.execute("SELECT * FROM despesa WHERE id=?", (despesa_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_model(row)
+
+    def obter_por_origem(self, origem: str, origem_id: int) -> Optional[Despesa]:
+        from app.db.connection import get_connection
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM despesa WHERE origem=? AND origem_id=?",
+            (origem, origem_id)
+        ).fetchone()
         if not row:
             return None
         return self._row_to_model(row)
@@ -184,6 +203,8 @@ class DespesaService:
             status=row["status"],
             forma_pagamento=row["forma_pagamento"],
             data_pagamento_final=fmt_data(row["data_pagamento_final"]),
+            origem=row["origem"],
+            origem_id=row["origem_id"],
         )
 
     def _validar_pagamento(self, despesa: Despesa) -> None:

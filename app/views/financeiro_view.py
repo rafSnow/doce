@@ -348,7 +348,18 @@ class DespesasPanel(ctk.CTkFrame):
         self.entry_dt_pag.delete(0,"end"); self.entry_dt_pag.insert(0, d.data_pagamento_final or "")
         self.entry_resp.delete(0,"end"); self.entry_resp.insert(0, d.responsavel or "")
         self.txt_desc.delete("0.0","end"); self.txt_desc.insert("0.0", d.descricao or "")
-        self.btn_excluir.configure(state="normal")
+        
+        # ERP integration: block editing if originated from insumo purchase
+        if d.origem:
+            self.btn_salvar.configure(state="disabled")
+            self.btn_excluir.configure(state="disabled")
+            # Optionally show a message in the description or a label
+            self.txt_desc.insert("1.0", ">>> REGISTRO AUTOMÁTICO (Origem: " + d.origem.upper() + ") <<<\n"
+                                 "Edições e exclusões devem ser feitas no módulo de origem.\n\n")
+        else:
+            self.btn_salvar.configure(state="normal")
+            self.btn_excluir.configure(state="normal")
+            
         self._show_form(editing=True)
 
     def _on_save(self):
@@ -649,7 +660,19 @@ class RendimentosPanel(ctk.CTkFrame):
         self.entry_fin_d.delete(0,"end"); self.entry_fin_d.insert(0, r.pag_final_data or "")
         self.cb_fin_f.set(r.pag_final_forma or FormaPagamento.PIX.value)
         self.cb_fin_s.set(r.pag_final_status or StatusPagamento.PENDENTE.value)
-        self.btn_excluir.configure(state="normal"); self._show_form(editing=True)
+        
+        # ERP integration: block editing if originated from a Pedido
+        if r.pedido_id:
+            self.btn_salvar.configure(state="disabled")
+            self.btn_excluir.configure(state="disabled")
+            messagebox.showinfo("Registro Automático", 
+                                "Este rendimento está vinculado ao Pedido #" + str(r.pedido_id) + ".\n"
+                                "Para alterá-lo, edite o Pedido correspondente.")
+        else:
+            self.btn_salvar.configure(state="normal")
+            self.btn_excluir.configure(state="normal")
+            
+        self._show_form(editing=True)
 
     def _on_save(self):
         try:

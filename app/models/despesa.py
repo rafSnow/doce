@@ -13,4 +13,6 @@ class Despesa:
     status: str = StatusPagamento.PENDENTE.value           # 'Pendente' | 'Pago'
     forma_pagamento: Optional[str] = None
     data_pagamento_final: Optional[str] = None
+    origem: Optional[str] = None                           # 'insumo' | 'pedido' etc
+    origem_id: Optional[int] = None
     id: Optional[int] = None

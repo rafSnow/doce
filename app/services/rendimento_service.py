@@ -24,7 +24,7 @@ class RendimentoService:
                        SET cliente_id=?,
                            pag_inicial_valor=?, pag_inicial_data=?, pag_inicial_forma=?, pag_inicial_status=?,
                            pag_final_valor=?, pag_final_data=?, pag_final_forma=?, pag_final_status=?,
-                           responsavel=?
+                           responsavel=?, pedido_id=?
                      WHERE id=?
                     """,
                     (
@@ -38,6 +38,7 @@ class RendimentoService:
                         rendimento.pag_final_forma,
                         rendimento.pag_final_status,
                         rendimento.responsavel,
+                        rendimento.pedido_id,
                         rendimento.id,
                     ),
                 )
@@ -49,6 +50,7 @@ class RendimentoService:
                         "cliente_id": rendimento.cliente_id,
                         "pag_inicial_valor": rendimento.pag_inicial_valor,
                         "pag_final_valor": rendimento.pag_final_valor,
+                        "pedido_id": rendimento.pedido_id,
                     },
                     conn=conn,
                 )
@@ -59,8 +61,8 @@ class RendimentoService:
                         cliente_id,
                         pag_inicial_valor, pag_inicial_data, pag_inicial_forma, pag_inicial_status,
                         pag_final_valor, pag_final_data, pag_final_forma, pag_final_status,
-                        responsavel
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        responsavel, pedido_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         rendimento.cliente_id,
@@ -73,6 +75,7 @@ class RendimentoService:
                         rendimento.pag_final_forma,
                         rendimento.pag_final_status,
                         rendimento.responsavel,
+                        rendimento.pedido_id,
                     ),
                 )
                 rendimento.id = cur.lastrowid
@@ -84,6 +87,7 @@ class RendimentoService:
                         "cliente_id": rendimento.cliente_id,
                         "pag_inicial_valor": rendimento.pag_inicial_valor,
                         "pag_final_valor": rendimento.pag_final_valor,
+                        "pedido_id": rendimento.pedido_id,
                     },
                     conn=conn,
                 )
@@ -141,6 +145,14 @@ class RendimentoService:
             return None
         return self._row_to_model(row)
 
+    def obter_por_pedido(self, pedido_id: int) -> Optional[Rendimento]:
+        from app.db.connection import get_connection
+        conn = get_connection()
+        row = conn.execute("SELECT * FROM rendimento WHERE pedido_id=?", (pedido_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_model(row)
+
     def excluir(self, rendimento_id: int) -> None:
         with transacao() as conn:
             conn.execute("DELETE FROM rendimento WHERE id=?", (rendimento_id,))
@@ -160,6 +172,7 @@ class RendimentoService:
             pag_final_forma=row["pag_final_forma"],
             pag_final_status=row["pag_final_status"],
             responsavel=row["responsavel"],
+            pedido_id=row["pedido_id"],
         )
 
     def _validar_pagamentos(self, rendimento: Rendimento) -> None:

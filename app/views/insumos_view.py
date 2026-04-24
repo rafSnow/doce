@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from app.core.formatters import fmt_data, fmt_moeda, parse_float
+from app.core import event_bus
 from app.models.insumo import Insumo
 from app.services.insumo_service import InsumoService
 from app.core.enums import UnidadeMedida
@@ -153,13 +154,16 @@ class InsumosPanel(ctk.CTkFrame):
         self.context_menu = tk.Menu(self, tearoff=0,
                                     bg=CARD_BG, fg=TEXT_PRIMARY,
                                     activebackground="#FAE8EC", activeforeground=ACCENT)
-        self.context_menu.add_command(label="Editar",  command=self._on_editar_selecionado)
-        self.context_menu.add_command(label="Excluir", command=self._on_excluir_selecionado)
+        self.context_menu.add_command(label="Editar",         command=self._on_editar_selecionado)
+        self.context_menu.add_command(label="Lançar Compra",  command=self._on_compra_selecionada)
+        self.context_menu.add_command(label="Excluir",        command=self._on_excluir_selecionado)
 
     # ── formulário ────────────────────────────────────────────────────────
     def _build_form(self):
         self._frame_form = ctk.CTkFrame(self, fg_color="transparent")
+        self._frame_compra = ctk.CTkFrame(self, fg_color="transparent")
 
+        # --- FORM CADASTRO ---
         # Atalhos de teclado
         self._frame_form.bind("<Control-s>", lambda e: self._on_salvar())
         self._frame_form.bind("<Escape>",    lambda e: self._ocultar_form())
@@ -194,7 +198,7 @@ class InsumosPanel(ctk.CTkFrame):
         self.combo_medida = _combo(inner, values=[UnidadeMedida.G.value, UnidadeMedida.ML.value, UnidadeMedida.UNIDADE.value], width=120)
         self.combo_medida.grid(row=6, column=1, padx=12, pady=(0, 10), sticky="ew")
 
-        ctk.CTkLabel(inner, text="Preço de Compra (R$)", text_color=TEXT_SECONDARY
+        ctk.CTkLabel(inner, text="Preço de Compra Atual (R$)", text_color=TEXT_SECONDARY
                      ).grid(row=7, column=0, padx=12, pady=(5, 2), sticky="w")
         self.entry_preco = _entry(inner, placeholder_text="0,00")
         self.entry_preco.grid(row=8, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="ew")
@@ -227,10 +231,71 @@ class InsumosPanel(ctk.CTkFrame):
         for b in (self.btn_cancelar, self.btn_excluir, self.btn_salvar):
             b.pack(side="right", padx=5)
 
+        # --- FORM COMPRA ---
+        self._frame_compra.bind("<Escape>", lambda e: self._ocultar_form())
+        
+        fcomp = _card(self._frame_compra)
+        fcomp.pack(fill="both", expand=True, padx=4, pady=0)
+        
+        icomp = ctk.CTkFrame(fcomp, fg_color="transparent")
+        icomp.pack(expand=True, fill="both", padx=18, pady=14)
+        icomp.grid_columnconfigure((0, 1), weight=1)
+        
+        ctk.CTkLabel(icomp, text="LANÇAR COMPRA DE INSUMO", text_color=ACCENT,
+                     font=ctk.CTkFont(size=12, weight="bold")
+                     ).grid(row=0, column=0, columnspan=2, padx=12, pady=(0, 10), sticky="w")
+        
+        self.lbl_compra_insumo = ctk.CTkLabel(icomp, text="Insumo: ...", text_color=TEXT_PRIMARY,
+                                              font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_compra_insumo.grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 15), sticky="w")
+
+        # Dados da mercadoria
+        ctk.CTkLabel(icomp, text="Quantidade Comprada", text_color=TEXT_SECONDARY
+                     ).grid(row=2, column=0, padx=12, pady=(5, 2), sticky="w")
+        self.entry_compra_qtd = _entry(icomp, placeholder_text="0,00")
+        self.entry_compra_qtd.grid(row=3, column=0, padx=12, pady=(0, 10), sticky="ew")
+        self.entry_compra_qtd.bind("<KeyRelease>", self._aplicar_mascara_decimal)
+
+        ctk.CTkLabel(icomp, text="Valor Total da Nota (R$)*", text_color=TEXT_SECONDARY
+                     ).grid(row=2, column=1, padx=12, pady=(5, 2), sticky="w")
+        self.entry_compra_valor = _entry(icomp, placeholder_text="0,00")
+        self.entry_compra_valor.grid(row=3, column=1, padx=12, pady=(0, 10), sticky="ew")
+        self.entry_compra_valor.bind("<KeyRelease>", self._aplicar_mascara_decimal)
+
+        # Dados do pagamento
+        ctk.CTkLabel(icomp, text="Data da Compra*", text_color=TEXT_SECONDARY
+                     ).grid(row=4, column=0, padx=12, pady=(5, 2), sticky="w")
+        self.entry_compra_data = _entry(icomp, placeholder_text="DD/MM/AAAA")
+        self.entry_compra_data.grid(row=5, column=0, padx=12, pady=(0, 10), sticky="ew")
+        self.entry_compra_data.bind("<KeyRelease>", self._aplicar_mascara_data)
+
+        ctk.CTkLabel(icomp, text="Forma de Pagamento", text_color=TEXT_SECONDARY
+                     ).grid(row=4, column=1, padx=12, pady=(5, 2), sticky="w")
+        self.cb_compra_forma = _optmenu(icomp, ["PIX", "Dinheiro", "Cartão Crédito", "Cartão Débito", "Boleto", "Transferência"])
+        self.cb_compra_forma.grid(row=5, column=1, padx=12, pady=(0, 10), sticky="ew")
+
+        ctk.CTkLabel(icomp, text="Status Pagamento", text_color=TEXT_SECONDARY
+                     ).grid(row=6, column=0, padx=12, pady=(5, 2), sticky="w")
+        self.cb_compra_status = _optmenu(icomp, ["Pago", "Pendente"])
+        self.cb_compra_status.grid(row=7, column=0, padx=12, pady=(0, 10), sticky="ew")
+        
+        ctk.CTkLabel(icomp, text="Responsável", text_color=TEXT_SECONDARY
+                     ).grid(row=6, column=1, padx=12, pady=(5, 2), sticky="w")
+        self.entry_compra_resp = _entry(icomp, placeholder_text="Nome")
+        self.entry_compra_resp.grid(row=7, column=1, padx=12, pady=(0, 10), sticky="ew")
+
+        fca = ctk.CTkFrame(icomp, fg_color="transparent")
+        fca.grid(row=8, column=0, columnspan=2, padx=12, pady=(20, 8), sticky="e")
+        self.btn_compra_salvar = _btn_accent(fca, "Confirmar Compra", self._on_salvar_compra)
+        self.btn_compra_cancel = _btn_ghost(fca, "Cancelar", self._ocultar_form)
+        self.btn_compra_cancel.pack(side="right", padx=5)
+        self.btn_compra_salvar.pack(side="right", padx=5)
+
     # ── transições ────────────────────────────────────────────────────────
     def _show_lista(self):
         self._editing = False
         self._frame_form.grid_forget()
+        self._frame_compra.grid_forget()
         self._frame_lista.grid(row=0, column=0, sticky="nsew")
         self._frame_lista.grid_columnconfigure(0, weight=1)
         self._frame_lista.grid_rowconfigure(1, weight=1)
@@ -239,11 +304,22 @@ class InsumosPanel(ctk.CTkFrame):
     def _show_form(self, editando=False):
         self._editing = True
         self._frame_lista.grid_forget()
+        self._frame_compra.grid_forget()
         self._frame_form.grid(row=0, column=0, sticky="nsew")
         self._frame_form.grid_columnconfigure(0, weight=1)
         self._frame_form.grid_rowconfigure(0, weight=1)
         if self._on_state: self._on_state(True)
         self.entry_nome.focus_set()
+
+    def _show_compra_form(self):
+        self._editing = True
+        self._frame_lista.grid_forget()
+        self._frame_form.grid_forget()
+        self._frame_compra.grid(row=0, column=0, sticky="nsew")
+        self._frame_compra.grid_columnconfigure(0, weight=1)
+        self._frame_compra.grid_rowconfigure(0, weight=1)
+        if self._on_state: self._on_state(True)
+        self.entry_compra_qtd.focus_set()
 
     def _ocultar_form(self):
         self._show_lista()
@@ -315,6 +391,24 @@ class InsumosPanel(ctk.CTkFrame):
         self.btn_excluir.configure(state="normal")
         self._show_form(editando=True)
 
+    def _on_compra_selecionada(self):
+        sel = self.tree.selection()
+        if not sel: return
+        insumo = self.service.get_by_id(self.tree.item(sel[0])["values"][0])
+        if not insumo: return
+        self.current_insumo_id = insumo.id
+        self.lbl_compra_insumo.configure(text=f"Insumo: {insumo.nome} ({insumo.unidade_medida})")
+        
+        # Reset compra form
+        self.entry_compra_qtd.delete(0, "end");   self.entry_compra_qtd.insert(0, str(insumo.peso_volume_total))
+        self.entry_compra_valor.delete(0, "end"); self.entry_compra_valor.insert(0, fmt_moeda(insumo.preco_compra, 2))
+        self.entry_compra_data.delete(0, "end");  self.entry_compra_data.insert(0, datetime.now().strftime("%d/%m/%Y"))
+        self.cb_compra_forma.set("PIX")
+        self.cb_compra_status.set("Pago")
+        self.entry_compra_resp.delete(0, "end")
+        
+        self._show_compra_form()
+
     def _excluir_form(self):
         if not self.current_insumo_id: return
         nome = self.entry_nome.get()
@@ -355,6 +449,46 @@ class InsumosPanel(ctk.CTkFrame):
                 quantidade_disponivel=qtd, quantidade_minima=qtd_min,
             ))
             self._ocultar_form(); self._carregar_dados()
+        except ValueError as e:
+            messagebox.showerror("Erro", str(e))
+
+    def _on_salvar_compra(self):
+        try:
+            if not self.current_insumo_id: return
+            insumo = self.service.get_by_id(self.current_insumo_id)
+            if not insumo: return
+            
+            qtd_compra   = parse_float(self.entry_compra_qtd.get(), "Quantidade Comprada", minimo=0.000001)
+            valor_total  = parse_float(self.entry_compra_valor.get(), "Valor Total", minimo=0.01)
+            data_compra  = parse_data(self.entry_compra_data.get(), "Data da Compra", obrigatorio=True)
+            forma_pag    = self.cb_compra_forma.get()
+            status_pag   = self.cb_compra_status.get()
+            responsavel  = self.entry_compra_resp.get().strip() or None
+            
+            # Atualiza o insumo: soma estoque e define o novo preço de compra unitário
+            novo_preco_unidade = valor_total / qtd_compra
+            novo_preco_cadastro = novo_preco_unidade * insumo.peso_volume_total
+            
+            insumo.quantidade_disponivel += qtd_compra
+            insumo.preco_compra = novo_preco_cadastro
+            insumo.data_compra = data_compra
+            
+            self.service.salvar(insumo)
+            
+            # Emite evento para gerar Despesa
+            event_bus.emit(
+                "insumo.comprado",
+                insumo_id=insumo.id,
+                valor_total=valor_total,
+                data_pagamento=data_compra,
+                forma_pagamento=forma_pag,
+                status_pagamento=status_pag,
+                responsavel=responsavel
+            )
+            
+            messagebox.showinfo("Sucesso", "Compra registrada com sucesso!\nEstoque atualizado e despesa gerada.")
+            self._ocultar_form(); self._carregar_dados()
+            
         except ValueError as e:
             messagebox.showerror("Erro", str(e))
 

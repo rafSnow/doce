@@ -15,4 +15,5 @@ class Rendimento:
     pag_final_forma: Optional[str] = None
     pag_final_status: str = StatusPagamento.PENDENTE.value    # 'Pendente' | 'Recebido'
     responsavel: Optional[str] = None
+    pedido_id: Optional[int] = None
     id: Optional[int] = None

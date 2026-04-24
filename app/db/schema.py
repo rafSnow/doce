@@ -85,7 +85,9 @@ def create_tables():
         responsavel          TEXT,
         status               TEXT DEFAULT '{StatusPagamento.PENDENTE.value}' CHECK(status IN ('{StatusPagamento.PENDENTE.value}','{StatusPagamento.PAGO.value}')),
         forma_pagamento      TEXT,
-        data_pagamento_final TEXT
+        data_pagamento_final TEXT,
+        origem               TEXT,
+        origem_id            INTEGER
     );
 
     -- Rendimentos
@@ -100,7 +102,8 @@ def create_tables():
         pag_final_data     TEXT,
         pag_final_forma    TEXT,
         pag_final_status   TEXT DEFAULT '{StatusPagamento.PENDENTE.value}',
-        responsavel        TEXT
+        responsavel        TEXT,
+        pedido_id          INTEGER REFERENCES pedido(id) ON DELETE CASCADE
     );
 
     -- Configurações gerais
@@ -193,6 +196,17 @@ def create_tables():
     pedido_item_cols = [r["name"] for r in conn.execute("PRAGMA table_info(pedido_item)").fetchall()]
     if "data_snapshot" not in pedido_item_cols:
         conn.execute("ALTER TABLE pedido_item ADD COLUMN data_snapshot TEXT")
+
+    # Migração: adiciona colunas de rastreabilidade para ERP
+    despesa_cols = [r["name"] for r in conn.execute("PRAGMA table_info(despesa)").fetchall()]
+    if "origem" not in despesa_cols:
+        conn.execute("ALTER TABLE despesa ADD COLUMN origem TEXT")
+    if "origem_id" not in despesa_cols:
+        conn.execute("ALTER TABLE despesa ADD COLUMN origem_id INTEGER")
+
+    rendimento_cols = [r["name"] for r in conn.execute("PRAGMA table_info(rendimento)").fetchall()]
+    if "pedido_id" not in rendimento_cols:
+        conn.execute("ALTER TABLE rendimento ADD COLUMN pedido_id INTEGER REFERENCES pedido(id) ON DELETE CASCADE")
 
     # Índices de performance (Sprint 8.6)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cliente_nome ON cliente(nome)")
