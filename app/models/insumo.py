@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
+from app.core.enums import UnidadeMedida
 
 @dataclass
 class Insumo:

@@ -1,7 +1,7 @@
 import os
 import sqlite3
 
-from app.db.connection import get_connection
+from app.db.transaction import transacao
 
 
 class ConfiguracaoService:
@@ -9,6 +9,7 @@ class ConfiguracaoService:
     NOME_PADRAO = "Dolce Neves"
 
     def get_nome_estabelecimento(self) -> str:
+        from app.db.connection import get_connection
         conn = get_connection()
         row = conn.execute(
             "SELECT valor FROM configuracao WHERE chave=?",
@@ -21,16 +22,15 @@ class ConfiguracaoService:
         return str(row["valor"]).strip() or self.NOME_PADRAO
 
     def salvar_nome_estabelecimento(self, nome: str) -> None:
-        conn = get_connection()
-        conn.execute(
-            """
-            INSERT INTO configuracao (chave, valor)
-            VALUES (?, ?)
-            ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor
-            """,
-            (self.CHAVE_NOME_ESTABELECIMENTO, nome.strip()),
-        )
-        conn.commit()
+        with transacao() as conn:
+            conn.execute(
+                """
+                INSERT INTO configuracao (chave, valor)
+                VALUES (?, ?)
+                ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor
+                """,
+                (self.CHAVE_NOME_ESTABELECIMENTO, nome.strip()),
+            )
 
     def realizar_backup(self, destino_arquivo: str) -> str:
         destino_arquivo = (destino_arquivo or "").strip()
@@ -41,6 +41,7 @@ class ConfiguracaoService:
         if pasta_destino:
             os.makedirs(pasta_destino, exist_ok=True)
 
+        from app.db.connection import get_connection
         conn = get_connection()
         conn.commit()  # Garante flush antes da cópia do arquivo.
 

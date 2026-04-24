@@ -1,74 +1,100 @@
 from typing import List, Optional
 from datetime import datetime
-from app.db.connection import get_connection
+from app.db.transaction import transacao
 from app.models.insumo import Insumo
+from app.core.enums import UnidadeMedida
+from app.core.formatters import normalizar_data_iso, fmt_data
+from app.core import event_bus
+from app.services.auditoria_service import AuditoriaService
 
 class InsumoService:
     def salvar(self, insumo: Insumo) -> int:
-        conn = get_connection()
         custo_calc = insumo.custo_por_unidade
         custo_anterior = None
         
-        if insumo.id:
-            preco_anterior = conn.execute(
-                "SELECT preco_compra, custo_por_unidade FROM insumo WHERE id=?",
-                (insumo.id,),
-            ).fetchone()
-            if preco_anterior:
-                custo_anterior = float(preco_anterior["custo_por_unidade"] or 0.0)
+        # Normaliza data para ISO antes de salvar
+        dt_compra_iso = normalizar_data_iso(insumo.data_compra) if insumo.data_compra else None
 
-            conn.execute("""
-                UPDATE insumo 
-                SET nome=?, categoria=?, peso_volume_total=?, unidade_medida=?, 
-                    preco_compra=?, custo_por_unidade=?, quantidade_disponivel=?, 
-                    quantidade_minima=?, data_compra=?
-                WHERE id=?
-            """, (insumo.nome, insumo.categoria, insumo.peso_volume_total, 
-                  insumo.unidade_medida, insumo.preco_compra, custo_calc, 
-                  insumo.quantidade_disponivel, insumo.quantidade_minima, 
-                  insumo.data_compra, insumo.id))
+        with transacao() as conn:
+            if insumo.id:
+                preco_anterior = conn.execute(
+                    "SELECT preco_compra, custo_por_unidade FROM insumo WHERE id=?",
+                    (insumo.id,),
+                ).fetchone()
+                if preco_anterior:
+                    custo_anterior = float(preco_anterior["custo_por_unidade"] or 0.0)
 
-            if preco_anterior and float(preco_anterior["preco_compra"]) != float(insumo.preco_compra):
-                conn.execute(
-                    """
-                    INSERT INTO historico_preco_insumo (
-                        insumo_id,
-                        preco_anterior,
-                        preco_novo,
-                        data_alteracao,
-                        observacao
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        insumo.id,
-                        float(preco_anterior["preco_compra"]),
-                        float(insumo.preco_compra),
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "Alteracao automatica via edicao de insumo",
-                    ),
+                conn.execute("""
+                    UPDATE insumo 
+                    SET nome=?, categoria=?, peso_volume_total=?, unidade_medida=?, 
+                        preco_compra=?, custo_por_unidade=?, quantidade_disponivel=?, 
+                        quantidade_minima=?, data_compra=?
+                    WHERE id=?
+                """, (insumo.nome, insumo.categoria, insumo.peso_volume_total, 
+                      insumo.unidade_medida, insumo.preco_compra, custo_calc, 
+                      insumo.quantidade_disponivel, insumo.quantidade_minima, 
+                      dt_compra_iso, insumo.id))
+
+                if preco_anterior and float(preco_anterior["preco_compra"]) != float(insumo.preco_compra):
+                    conn.execute(
+                        """
+                        INSERT INTO historico_preco_insumo (
+                            insumo_id,
+                            preco_anterior,
+                            preco_novo,
+                            data_alteracao,
+                            observacao
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            insumo.id,
+                            float(preco_anterior["preco_compra"]),
+                            float(insumo.preco_compra),
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "Alteracao automatica via edicao de insumo",
+                        ),
+                    )
+                
+                AuditoriaService.registrar(
+                    entidade="insumo",
+                    acao="UPDATE",
+                    entidade_id=insumo.id,
+                    detalhes={
+                        "nome": insumo.nome,
+                        "preco_compra": insumo.preco_compra,
+                        "quantidade_disponivel": insumo.quantidade_disponivel
+                    },
+                    conn=conn
                 )
-        else:
-            cur = conn.execute("""
-                INSERT INTO insumo (nome, categoria, peso_volume_total, unidade_medida, 
-                                    preco_compra, custo_por_unidade, quantidade_disponivel, 
-                                    quantidade_minima, data_compra) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (insumo.nome, insumo.categoria, insumo.peso_volume_total, 
-                  insumo.unidade_medida, insumo.preco_compra, custo_calc, 
-                  insumo.quantidade_disponivel, insumo.quantidade_minima, 
-                  insumo.data_compra))
-            insumo.id = cur.lastrowid
-        conn.commit()
+            else:
+                cur = conn.execute("""
+                    INSERT INTO insumo (nome, categoria, peso_volume_total, unidade_medida, 
+                                        preco_compra, custo_por_unidade, quantidade_disponivel, 
+                                        quantidade_minima, data_compra) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (insumo.nome, insumo.categoria, insumo.peso_volume_total, 
+                      insumo.unidade_medida, insumo.preco_compra, custo_calc, 
+                      insumo.quantidade_disponivel, insumo.quantidade_minima, 
+                      dt_compra_iso))
+                insumo.id = cur.lastrowid
+                
+                AuditoriaService.registrar(
+                    entidade="insumo",
+                    acao="INSERT",
+                    entidade_id=insumo.id,
+                    detalhes={
+                        "nome": insumo.nome,
+                        "preco_compra": insumo.preco_compra,
+                        "quantidade_disponivel": insumo.quantidade_disponivel
+                    },
+                    conn=conn
+                )
 
-        # Mantém custo de produtos sincronizado quando o insumo muda.
-        if insumo.id and custo_anterior is not None and float(custo_calc) != custo_anterior:
-            from app.services.produto_service import ProdutoService
-
-            ProdutoService().recalcular_por_insumo(insumo.id)
-
+        event_bus.emit("insumo.salvo", insumo_id=insumo.id, custo_anterior=custo_anterior, custo_novo=float(custo_calc))
         return insumo.id
 
     def listar(self, nome: str = "", categoria: str = "") -> List[Insumo]:
+        from app.db.connection import get_connection
         conn = get_connection()
         query = "SELECT * FROM insumo WHERE 1=1"
         params = []
@@ -88,6 +114,7 @@ class InsumoService:
         return [self._row_to_model(row) for row in rows]
 
     def get_by_id(self, id: int) -> Optional[Insumo]:
+        from app.db.connection import get_connection
         conn = get_connection()
         cursor = conn.execute("SELECT * FROM insumo WHERE id=?", (id,))
         row = cursor.fetchone()
@@ -96,11 +123,13 @@ class InsumoService:
         return None
 
     def excluir(self, id: int) -> None:
-        conn = get_connection()
-        conn.execute("DELETE FROM insumo WHERE id=?", (id,))
-        conn.commit()
+        with transacao() as conn:
+            conn.execute("DELETE FROM insumo WHERE id=?", (id,))
+            AuditoriaService.registrar("insumo", "DELETE", id, conn=conn)
+        event_bus.emit("insumo.excluido", insumo_id=id)
 
     def contar_alertas_estoque(self) -> int:
+        from app.db.connection import get_connection
         conn = get_connection()
         row = conn.execute(
             """
@@ -112,6 +141,7 @@ class InsumoService:
         return int(row["total"] or 0)
 
     def listar_historico_preco(self, insumo_id: Optional[int] = None) -> List[dict]:
+        from app.db.connection import get_connection
         conn = get_connection()
         query = """
             SELECT h.id,
@@ -145,5 +175,5 @@ class InsumoService:
             preco_compra=row["preco_compra"],
             quantidade_disponivel=row["quantidade_disponivel"],
             quantidade_minima=row["quantidade_minima"],
-            data_compra=row["data_compra"]
+            data_compra=fmt_data(row["data_compra"])
         )

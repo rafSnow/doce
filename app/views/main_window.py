@@ -8,26 +8,27 @@ try:
 except Exception:
     Image = None
 
-# ── Paleta de cores ──────────────────────────────────────────────────────────
-BG_DEEP       = "#12100E"   # fundo da janela
-SIDEBAR_BG    = "#1A1612"   # sidebar
-SIDEBAR_HOVER = "#221D18"   # hover
-SIDEBAR_ACTIVE= "#2A201A"   # ativo
-CARD_BG       = "#1E1814"   # cards e frames secundários
-BORDER        = "#2E2218"   # bordas suaves
+from app.ui.theme import (
+    ACCENT,
+    COLOR_BLUE,
+    COLOR_GREEN,
+    COLOR_ORANGE,
+    COLOR_PURPLE,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+from app.core import event_bus
 
-ACCENT        = "#C8866B"   # terracota / cobre
-ACCENT_LIGHT  = "#E8A980"   # tom mais claro do accent
-GOLD          = "#E8A94A"   # dourado para badges/alertas
+# ── Paleta Dolce Neves ───────────────────────────────────────────────────────
+SIDEBAR_BG     = "#FAE8EC"   # rosa-claro — sidebar
+SIDEBAR_HOVER  = "#F2D5DC"   # hover suave
+SIDEBAR_ACTIVE = "#EBC5CC"   # item ativo
+BORDER         = "#E8C8D0"   # bordas suaves
 
-TEXT_PRIMARY   = "#F0E0D0"  # texto principal
-TEXT_SECONDARY = "#A08070"  # texto secundário
-TEXT_MUTED     = "#5A4A40"  # texto muito discreto
-
-COLOR_GREEN  = "#7CC99A"
-COLOR_BLUE   = "#6BACD4"
-COLOR_ORANGE = "#E8A94A"
-COLOR_PURPLE = "#B48FD4"
+ACCENT_LIGHT   = "#D98590"   # rosa mais claro
+GOLD           = "#A0404E"   # rosa escuro para badges/alertas
+WINDOW_BG      = "#FFFFFF"
 
 
 class NavButton(ctk.CTkFrame):
@@ -79,7 +80,7 @@ class NavButton(ctk.CTkFrame):
         self._badge_var = ctk.StringVar(value="")
         self._lbl_badge = ctk.CTkLabel(
             self._btn_frame, textvariable=self._badge_var,
-            fg_color="#3A2A10", text_color=GOLD,
+            fg_color="#F2D5DC", text_color=GOLD,
             corner_radius=10, font=ctk.CTkFont(size=10, weight="bold"),
             width=0, height=18,
         )
@@ -95,7 +96,7 @@ class NavButton(ctk.CTkFrame):
         if active:
             self._indicator.configure(bg=ACCENT)
             self._btn_frame.configure(fg_color=SIDEBAR_ACTIVE)
-            self._lbl_icon.configure(text_color=ACCENT_LIGHT)
+            self._lbl_icon.configure(text_color=ACCENT)
             self._lbl_text.configure(
                 text_color=TEXT_PRIMARY,
                 font=ctk.CTkFont(family="Roboto", size=13, weight="bold"),
@@ -144,9 +145,9 @@ class MainWindow(ctk.CTk):
         self.nome_estabelecimento = self.config_service.get_nome_estabelecimento()
 
         # ── janela ────────────────────────────────────────────────────────
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("dark-blue")
-        self.configure(fg_color=BG_DEEP)
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
+        self.configure(fg_color=WINDOW_BG)
         self.title(f"{self.nome_estabelecimento} — Gestão para Confeitaria")
         self.geometry("1220x820")
         self.minsize(880, 640)
@@ -186,7 +187,6 @@ class MainWindow(ctk.CTk):
             self._app_icon_image = tk.PhotoImage(file=str(icon_path))
             self.iconphoto(True, self._app_icon_image)
         except Exception:
-            # Se o ambiente não suportar o formato, mantém o ícone padrão.
             self._app_icon_image = None
 
     def _maximize_on_start(self):
@@ -225,7 +225,6 @@ class MainWindow(ctk.CTk):
             if Image is not None:
                 pil_img = Image.open(icon_path)
                 return ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(28, 28))
-
             img = tk.PhotoImage(file=str(icon_path))
             max_side = max(img.width(), img.height())
             if max_side > 28:
@@ -261,7 +260,8 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             logo_frame, text="GESTÃO", anchor="w",
-            text_color=ACCENT, font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=ACCENT,
+            font=ctk.CTkFont(size=10, weight="bold"),
         ).pack(anchor="w")
 
         self.lbl_nome = ctk.CTkLabel(
@@ -355,37 +355,67 @@ class MainWindow(ctk.CTk):
         self._set_active("Dashboard")
         self._atualizar_badge_alerta_insumos()
         from app.views.dashboard_view import DashboardView
-        DashboardView(self.content_frame).grid(row=0, column=0, sticky="nsew")
+        view = DashboardView(self.content_frame)
+        view.grid(row=0, column=0, sticky="nsew")
+        
+        event_bus.on("insumo.salvo", view.refresh)
+        event_bus.on("insumo.excluido", view.refresh)
+        event_bus.on("produto.salvo", view.refresh)
+        event_bus.on("produto.excluido", view.refresh)
+        event_bus.on("pedido.salvo", view.refresh)
+        event_bus.on("pedido.excluido", view.refresh)
+        event_bus.on("despesa.salva", view.refresh)
+        event_bus.on("despesa.excluida", view.refresh)
+        event_bus.on("rendimento.salvo", view.refresh)
+        event_bus.on("rendimento.excluido", view.refresh)
 
     def show_insumos_view(self):
         self._clear_content()
         self._set_active("Insumos")
         from app.views.insumos_view import InsumosView
-        InsumosView(
+        view = InsumosView(
             self.content_frame,
             on_estoque_alerta_change=self._atualizar_badge_alerta_insumos,
-        ).grid(row=0, column=0, sticky="nsew")
+        )
+        view.grid(row=0, column=0, sticky="nsew")
+        event_bus.on("insumo.salvo", view.refresh)
+        event_bus.on("insumo.excluido", view.refresh)
 
     def show_produtos_view(self):
         self._clear_content()
         self._set_active("Produtos")
         self._atualizar_badge_alerta_insumos()
         from app.views.produtos_view import ProdutosView
-        ProdutosView(self.content_frame).grid(row=0, column=0, sticky="nsew")
+        view = ProdutosView(self.content_frame)
+        view.grid(row=0, column=0, sticky="nsew")
+        event_bus.on("produto.salvo", view.refresh)
+        event_bus.on("produto.excluido", view.refresh)
+        event_bus.on("insumo.salvo", view.refresh)
+        event_bus.on("insumo.excluido", view.refresh)
 
     def show_pedidos_view(self):
         self._clear_content()
         self._set_active("Pedidos")
         self._atualizar_badge_alerta_insumos()
         from app.views.pedidos_view import PedidosView
-        PedidosView(self.content_frame).grid(row=0, column=0, sticky="nsew")
+        view = PedidosView(self.content_frame)
+        view.grid(row=0, column=0, sticky="nsew")
+        event_bus.on("pedido.salvo", view.refresh)
+        event_bus.on("pedido.excluido", view.refresh)
+        event_bus.on("produto.salvo", view.refresh)
+        event_bus.on("produto.excluido", view.refresh)
 
     def show_financeiro_view(self):
         self._clear_content()
         self._set_active("Financeiro")
         self._atualizar_badge_alerta_insumos()
         from app.views.financeiro_view import FinanceiroView
-        FinanceiroView(self.content_frame).grid(row=0, column=0, sticky="nsew")
+        view = FinanceiroView(self.content_frame)
+        view.grid(row=0, column=0, sticky="nsew")
+        event_bus.on("despesa.salva", view.refresh)
+        event_bus.on("despesa.excluida", view.refresh)
+        event_bus.on("rendimento.salvo", view.refresh)
+        event_bus.on("rendimento.excluido", view.refresh)
 
     def show_config_view(self):
         self._clear_content()

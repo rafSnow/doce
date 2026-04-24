@@ -9,52 +9,47 @@ from matplotlib.ticker import FuncFormatter
 from tkinter import messagebox
 
 from app.services.dashboard_service import DashboardService
+from app.core.enums import CategoriaDespesa
+from app.ui.theme import (
+    ACCENT,
+    BG_DEEP,
+    CARD_BG,
+    CARD_BORDER,
+    COLOR_BLUE,
+    COLOR_GREEN,
+    COLOR_ORANGE,
+    COLOR_PURPLE,
+    HEADER_BG,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    _sep as _separator,
+)
 
-# ── Paleta ───────────────────────────────────────────────────────────────────
-BG_DEEP        = "#12100E"
-CARD_BG        = "#1E1814"
-CARD_BORDER    = "#2E2218"
-HEADER_BG      = "#171310"
-CHART_BG       = "#181410"
+CHART_BG       = "#FFFFFF"   # fundo dos gráficos
 
-ACCENT         = "#C8866B"
-ACCENT_LIGHT   = "#E8A980"
-GOLD           = "#E8A94A"
+ACCENT_LIGHT   = "#D98590"   # rosa mais claro
+GOLD           = "#A0404E"   # rosa escuro — badges
 
-TEXT_PRIMARY   = "#F0E0D0"
-TEXT_SECONDARY = "#A08070"
-TEXT_MUTED     = "#5A4A40"
+COLOR_COPPER   = "#C96B7A"   # usa o rosa como "cobre" no contexto Dolce
 
-COLOR_GREEN    = "#7CC99A"
-COLOR_BLUE     = "#6BACD4"
-COLOR_ORANGE   = "#E8A94A"
-COLOR_PURPLE   = "#B48FD4"
-COLOR_COPPER   = "#C8866B"
-
-PILL_ACTIVE_FG   = "#2A1E16"
-PILL_ACTIVE_TEXT = TEXT_PRIMARY
-PILL_FG          = "#1E1814"
+PILL_ACTIVE_FG   = ACCENT
+PILL_ACTIVE_TEXT = "#FFFFFF"
+PILL_FG          = "#FAE8EC"
 PILL_TEXT        = TEXT_SECONDARY
 
 
-# ── Helpers de widget ─────────────────────────────────────────────────────────
-def _separator(parent, **kw):
-    f = ctk.CTkFrame(parent, height=1, fg_color=CARD_BORDER, **kw)
-    return f
-
-
 def _pill_button(parent, text: str, command, active=False):
-    fg   = ACCENT         if active else "#241C18"
-    txt  = "#FFFFFF"      if active else TEXT_SECONDARY
-    brd  = ACCENT         if active else CARD_BORDER
-    btn = ctk.CTkButton(
+    fg   = ACCENT       if active else "#FAE8EC"
+    txt  = "#FFFFFF"    if active else TEXT_SECONDARY
+    brd  = ACCENT       if active else CARD_BORDER
+    return ctk.CTkButton(
         parent, text=text, command=command,
         fg_color=fg, text_color=txt, border_color=brd,
         border_width=1, corner_radius=20,
-        hover_color="#A06050" if active else "#2A201A",
+        hover_color="#A84F5E" if active else "#F2D5DC",
         height=30, font=ctk.CTkFont(size=12),
     )
-    return btn
 
 
 class StatCard(ctk.CTkFrame):
@@ -148,8 +143,8 @@ class InvestedCard(ctk.CTkFrame):
         right = ctk.CTkFrame(self, fg_color="transparent")
         right.grid(row=1, column=2, sticky="nsew", padx=(18, 20), pady=(10, 14))
 
-        self._lbl_insumos     = self._mini_stat(right, "Insumos",     COLOR_COPPER, 0)
-        self._lbl_investimento = self._mini_stat(right, "Investimentos", COLOR_GREEN, 1)
+        self._lbl_insumos      = self._mini_stat(right, "Insumos",        COLOR_COPPER, 0)
+        self._lbl_investimento = self._mini_stat(right, "Investimentos",   COLOR_GREEN,  1)
 
     @staticmethod
     def _mini_stat(parent, label, color, row):
@@ -192,12 +187,12 @@ class ChartFrame(ctk.CTkFrame):
 
         _separator(self).grid(row=1, column=0, sticky="ew", padx=0)
 
-        self.figure = Figure(figsize=figsize, dpi=100, facecolor=CARD_BG)
+        self.figure = Figure(figsize=figsize, dpi=100, facecolor=CHART_BG)
         self.ax     = self.figure.add_subplot(111)
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         w = self.canvas.get_tk_widget()
-        w.configure(bg=CARD_BG, highlightthickness=0)
+        w.configure(bg=CHART_BG, highlightthickness=0)
         w.grid(row=2, column=0, padx=10, pady=(4, 10), sticky="nsew")
         self.grid_rowconfigure(2, weight=1)
 
@@ -230,6 +225,9 @@ class DashboardView(ctk.CTkFrame):
         self.bind("<Configure>", self._on_resize)
         self._on_periodo("Mês Atual")
 
+    def refresh(self):
+        self.carregar_dados()
+
     # ── Topbar ────────────────────────────────────────────────────────────
     def _build_topbar(self):
         bar = ctk.CTkFrame(self, fg_color=HEADER_BG, corner_radius=0, height=56)
@@ -257,7 +255,7 @@ class DashboardView(ctk.CTkFrame):
         # botão atualizar
         ctk.CTkButton(
             bar, text="↻  Atualizar", command=self.carregar_dados,
-            fg_color=ACCENT, hover_color="#A06050", text_color="#fff",
+            fg_color=ACCENT, hover_color="#A84F5E", text_color="#FFFFFF",
             height=30, corner_radius=20,
             font=ctk.CTkFont(size=12, weight="bold"),
         ).grid(row=0, column=2, padx=(0, 20))
@@ -297,7 +295,7 @@ class DashboardView(ctk.CTkFrame):
 
         ctk.CTkButton(
             self._custom_bar, text="Aplicar",
-            fg_color=ACCENT, hover_color="#A06050", text_color="#fff",
+            fg_color=ACCENT, hover_color="#A84F5E", text_color="#FFFFFF",
             height=30, corner_radius=20, width=90,
             command=self._aplicar_custom,
         ).grid(row=0, column=4, padx=(8, 20), pady=6)
@@ -310,23 +308,23 @@ class DashboardView(ctk.CTkFrame):
         )
         self._lbl_periodo.grid(row=3, column=0, sticky="w", padx=22, pady=(0, 2))
 
-        # O período inicial é aplicado ao final do __init__, após cards e gráficos existirem.
-
     # ── Cards ─────────────────────────────────────────────────────────────
     def _build_cards(self):
         cards_outer = ctk.CTkFrame(self, fg_color="transparent")
         cards_outer.grid(row=4, column=0, sticky="ew", padx=16, pady=(12, 0))
-        cards_outer.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        cards_outer.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        self._card_saldo   = StatCard(cards_outer, "Saldo Realizado",  COLOR_GREEN,  "Receitas confirmadas")
-        self._card_receber = StatCard(cards_outer, "A Receber",        COLOR_BLUE,   "Pedidos pendentes")
-        self._card_pagar   = StatCard(cards_outer, "Falta Pagar",      COLOR_ORANGE, "Despesas pendentes")
-        self._card_previsto= StatCard(cards_outer, "Saldo Previsto",   COLOR_PURPLE, "Projeção do período")
+        self._card_saldo    = StatCard(cards_outer, "Saldo Realizado",  COLOR_GREEN,  "Receitas confirmadas")
+        self._card_receber  = StatCard(cards_outer, "A Receber",        COLOR_BLUE,   "Pedidos pendentes")
+        self._card_pagar    = StatCard(cards_outer, "Falta Pagar",      COLOR_ORANGE, "Despesas pendentes")
+        self._card_previsto = StatCard(cards_outer, "Saldo Previsto",   COLOR_PURPLE, "Projeção do período")
+        self._card_lucro    = StatCard(cards_outer, "Lucro em Vendas",  ACCENT,       "Venda - custo dos produtos")
 
         self._card_saldo.grid   (row=0, column=0, padx=6, pady=0, sticky="nsew")
         self._card_receber.grid (row=0, column=1, padx=6, pady=0, sticky="nsew")
         self._card_pagar.grid   (row=0, column=2, padx=6, pady=0, sticky="nsew")
         self._card_previsto.grid(row=0, column=3, padx=6, pady=0, sticky="nsew")
+        self._card_lucro.grid   (row=0, column=4, padx=6, pady=0, sticky="nsew")
 
         # card investido (largura total)
         self._card_investido = InvestedCard(self)
@@ -364,10 +362,10 @@ class DashboardView(ctk.CTkFrame):
         for t, btn in self._pill_btns.items():
             ativo = t == tipo
             btn.configure(
-                fg_color=ACCENT if ativo else "#241C18",
-                text_color=TEXT_PRIMARY if ativo else TEXT_SECONDARY,
+                fg_color=ACCENT if ativo else "#FAE8EC",
+                text_color="#FFFFFF" if ativo else TEXT_SECONDARY,
                 border_color=ACCENT if ativo else CARD_BORDER,
-                hover_color="#A06050" if ativo else "#2A201A",
+                hover_color="#A84F5E" if ativo else "#F2D5DC",
             )
 
         hoje = datetime.now()
@@ -457,6 +455,7 @@ class DashboardView(ctk.CTkFrame):
         self._card_receber.set_value(self._fmt(resumo.a_receber))
         self._card_pagar.set_value(self._fmt(resumo.falta_pagar))
         self._card_previsto.set_value(self._fmt(resumo.saldo_previsto))
+        self._card_lucro.set_value(self._fmt(resumo.lucro_total_vendas))
         self._card_investido.set_values(
             self._fmt(resumo.total_investido),
         )
@@ -477,8 +476,8 @@ class DashboardView(ctk.CTkFrame):
     def _draw_barras(self):
         ax = self._cf_barras.ax
         ax.clear()
-        ax.set_facecolor(CARD_BG)
-        self._cf_barras.figure.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CHART_BG)
+        self._cf_barras.figure.patch.set_facecolor(CHART_BG)
 
         serie = self.serie_barras
         if not serie:
@@ -489,28 +488,28 @@ class DashboardView(ctk.CTkFrame):
             self._cf_barras.redraw()
             return
 
-        labels      = [item["label"]       for item in serie]
-        faturamento = [item["faturamento"]  for item in serie]
-        despesas    = [item["despesas"]     for item in serie]
+        labels      = [item["label"]      for item in serie]
+        faturamento = [item["faturamento"] for item in serie]
+        despesas    = [item["despesas"]    for item in serie]
         indices     = list(range(len(serie)))
         bw          = 0.34
 
         ax.bar([i - bw / 2 for i in indices], faturamento, bw,
-               label="Faturamento", color=COLOR_GREEN,  alpha=0.92)
+               label="Faturamento", color=COLOR_GREEN,  alpha=0.88)
         ax.bar([i + bw / 2 for i in indices], despesas,    bw,
-               label="Despesas",    color="#E07060", alpha=0.92)
+               label="Despesas",    color=ACCENT, alpha=0.88)
 
         ax.set_xticks(indices)
         ax.set_xticklabels(labels, color=TEXT_SECONDARY, fontsize=9)
         ax.tick_params(axis="y", colors=TEXT_MUTED, labelsize=8)
         ax.yaxis.set_major_formatter(FuncFormatter(
             lambda v, _: self._fmt_curta(v)))
-        ax.grid(axis="y", color="#2A1E18", linewidth=0.7)
+        ax.grid(axis="y", color="#F0E0E4", linewidth=0.7)
         ax.set_axisbelow(True)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
         for sp in ("bottom", "left"):
-            ax.spines[sp].set_color("#2E2218")
+            ax.spines[sp].set_color(CARD_BORDER)
 
         ax.legend(loc="upper left", frameon=False,
                   labelcolor=TEXT_SECONDARY, fontsize=9)
@@ -524,8 +523,8 @@ class DashboardView(ctk.CTkFrame):
     def _draw_pizza(self):
         ax = self._cf_pizza.ax
         ax.clear()
-        ax.set_facecolor(CARD_BG)
-        self._cf_pizza.figure.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CHART_BG)
+        self._cf_pizza.figure.patch.set_facecolor(CHART_BG)
 
         serie = self.serie_pizza
         if not serie:
@@ -545,11 +544,11 @@ class DashboardView(ctk.CTkFrame):
             valores, colors=cores, startangle=90,
             autopct=lambda p: f"{p:.1f}%".replace(".", ","),
             pctdistance=0.68,
-            wedgeprops={"linewidth": 2.5, "edgecolor": CARD_BG},
-            textprops={"color": "#ffffff", "fontsize": 9},
+            wedgeprops={"linewidth": 2.5, "edgecolor": CHART_BG},
+            textprops={"color": "#FFFFFF", "fontsize": 9},
         )
         for t in autotextos:
-            t.set_color("#ffffff")
+            t.set_color("#FFFFFF")
             t.set_fontweight("bold")
 
         ax.legend(
@@ -567,9 +566,9 @@ class DashboardView(ctk.CTkFrame):
     # ── Utilitários ───────────────────────────────────────────────────────
     def _cor(self, categoria: str) -> str:
         return {
-            "Insumos":       COLOR_COPPER,
-            "Investimentos": COLOR_GREEN,
-            "Outros":        COLOR_BLUE,
+            CategoriaDespesa.INSUMOS.value:       COLOR_COPPER,
+            CategoriaDespesa.INVESTIMENTOS.value: COLOR_GREEN,
+            CategoriaDespesa.OUTROS.value:        COLOR_BLUE,
         }.get(categoria, COLOR_ORANGE)
 
     @staticmethod

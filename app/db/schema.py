@@ -1,16 +1,17 @@
 from app.db.connection import get_connection
+from app.core.enums import StatusPagamento, CategoriaDespesa, UnidadeMedida
 
 def create_tables():
     conn = get_connection()
     
-    script = """
+    script = f"""
     -- Insumos (ingredientes e embalagens)
     CREATE TABLE IF NOT EXISTS insumo (
         id                    INTEGER PRIMARY KEY AUTOINCREMENT,
         nome                  TEXT NOT NULL,
         categoria             TEXT NOT NULL CHECK(categoria IN ('Ingrediente','Embalagem','Gás')),
         peso_volume_total     REAL NOT NULL,
-        unidade_medida        TEXT NOT NULL CHECK(unidade_medida IN ('g','ml','unidade')),
+        unidade_medida        TEXT NOT NULL CHECK(unidade_medida IN ('{UnidadeMedida.G.value}','{UnidadeMedida.ML.value}','{UnidadeMedida.UNIDADE.value}')),
         preco_compra          REAL NOT NULL,
         custo_por_unidade     REAL NOT NULL,          -- calculado: preco / peso_volume
         quantidade_disponivel REAL NOT NULL DEFAULT 0,
@@ -47,6 +48,7 @@ def create_tables():
     -- Pedidos
     CREATE TABLE IF NOT EXISTS pedido (
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id         INTEGER REFERENCES cliente(id),
         cliente_nome       TEXT,
         data_pedido        TEXT NOT NULL,
         data_entrega       TEXT,
@@ -54,11 +56,11 @@ def create_tables():
         pag_inicial_valor  REAL DEFAULT 0,
         pag_inicial_data   TEXT,
         pag_inicial_forma  TEXT,
-        pag_inicial_status TEXT DEFAULT 'Pendente',
+        pag_inicial_status TEXT DEFAULT '{StatusPagamento.PENDENTE.value}',
         pag_final_valor    REAL DEFAULT 0,
         pag_final_data     TEXT,
         pag_final_forma    TEXT,
-        pag_final_status   TEXT DEFAULT 'Pendente',
+        pag_final_status   TEXT DEFAULT '{StatusPagamento.PENDENTE.value}',
         responsavel        TEXT
     );
 
@@ -79,9 +81,9 @@ def create_tables():
         data                 TEXT NOT NULL,
         valor                REAL NOT NULL,
         descricao            TEXT,
-        categoria            TEXT CHECK(categoria IN ('Insumos','Investimentos','Outros')),
+        categoria            TEXT CHECK(categoria IN ('{CategoriaDespesa.INSUMOS.value}','{CategoriaDespesa.INVESTIMENTOS.value}','{CategoriaDespesa.OUTROS.value}')),
         responsavel          TEXT,
-        status               TEXT DEFAULT 'Pendente' CHECK(status IN ('Pendente','Pago')),
+        status               TEXT DEFAULT '{StatusPagamento.PENDENTE.value}' CHECK(status IN ('{StatusPagamento.PENDENTE.value}','{StatusPagamento.PAGO.value}')),
         forma_pagamento      TEXT,
         data_pagamento_final TEXT
     );
@@ -93,11 +95,11 @@ def create_tables():
         pag_inicial_valor  REAL DEFAULT 0,
         pag_inicial_data   TEXT,
         pag_inicial_forma  TEXT,
-        pag_inicial_status TEXT DEFAULT 'Pendente',
+        pag_inicial_status TEXT DEFAULT '{StatusPagamento.PENDENTE.value}',
         pag_final_valor    REAL DEFAULT 0,
         pag_final_data     TEXT,
         pag_final_forma    TEXT,
-        pag_final_status   TEXT DEFAULT 'Pendente',
+        pag_final_status   TEXT DEFAULT '{StatusPagamento.PENDENTE.value}',
         responsavel        TEXT
     );
 
@@ -131,10 +133,12 @@ def create_tables():
 
     # Migração: versões antigas possuem cliente_id ao invés de cliente_nome
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(pedido)").fetchall()]
+    if "cliente_id" not in cols:
+        conn.execute("ALTER TABLE pedido ADD COLUMN cliente_id INTEGER REFERENCES cliente(id)")
     if "cliente_nome" not in cols:
         conn.execute("ALTER TABLE pedido ADD COLUMN cliente_nome TEXT")
 
-    # Backfill para preservar dados históricos de bancos antigos
+    # Backfill para preservar e normalizar dados históricos de bancos antigos
     if "cliente_id" in cols:
         conn.execute("""
             UPDATE pedido
@@ -146,6 +150,37 @@ def create_tables():
              WHERE (cliente_nome IS NULL OR cliente_nome = '')
                AND cliente_id IS NOT NULL
         """)
+
+        conn.execute(
+                """
+                INSERT INTO cliente (nome)
+                SELECT DISTINCT TRIM(p.cliente_nome)
+                    FROM pedido p
+                 WHERE p.cliente_nome IS NOT NULL
+                     AND TRIM(p.cliente_nome) <> ''
+                     AND NOT EXISTS (
+                             SELECT 1
+                                 FROM cliente c
+                                WHERE LOWER(TRIM(c.nome)) = LOWER(TRIM(p.cliente_nome))
+                     )
+                """
+        )
+
+        conn.execute(
+                """
+                UPDATE pedido
+                     SET cliente_id = (
+                             SELECT c.id
+                                 FROM cliente c
+                                WHERE LOWER(TRIM(c.nome)) = LOWER(TRIM(pedido.cliente_nome))
+                                ORDER BY c.id
+                                LIMIT 1
+                     )
+                 WHERE cliente_id IS NULL
+                     AND cliente_nome IS NOT NULL
+                     AND TRIM(cliente_nome) <> ''
+                """
+        )
 
     # Migração Sprint 6.1: versões antigas de insumo podem não ter campos de estoque
     insumo_cols = [r["name"] for r in conn.execute("PRAGMA table_info(insumo)").fetchall()]
@@ -164,6 +199,7 @@ def create_tables():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_insumo_nome ON insumo(nome)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_produto_nome ON produto(nome)")
 
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_cliente_id ON pedido(cliente_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_cliente_nome ON pedido(cliente_nome)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_data_pedido_id ON pedido(data_pedido DESC, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_status_pag ON pedido(pag_inicial_status, pag_final_status)")

@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime
 import calendar
 
+from app.core.formatters import normalizar_data_iso
 from app.db.connection import get_connection
+from app.core.enums import StatusPagamento, CategoriaDespesa
 
 @dataclass
 class DashboardResumo:
@@ -11,6 +13,7 @@ class DashboardResumo:
     a_receber: float
     saldo_previsto: float
     total_investido: float
+    lucro_total_vendas: float
 
 class DashboardService:
     def get_resumo(self, data_inicio: str = "", data_fim: str = "") -> DashboardResumo:
@@ -23,6 +26,7 @@ class DashboardService:
         despesas_pagas = 0.0
         falta_pagar = 0.0
         total_investido = 0.0
+        lucro_total_vendas = 0.0
 
         pedidos = conn.execute(
             """
@@ -37,15 +41,38 @@ class DashboardService:
             pag_ini_data = self._parse_data(pedido["pag_inicial_data"])
             pag_fin_data = self._parse_data(pedido["pag_final_data"])
 
-            if pedido["pag_inicial_status"] == "Recebido" and self._esta_no_periodo(pag_ini_data, inicio, fim):
+            if pedido["pag_inicial_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
                 total_recebido += float(pedido["pag_inicial_valor"] or 0.0)
-            if pedido["pag_final_status"] == "Recebido" and self._esta_no_periodo(pag_fin_data, inicio, fim):
+            if pedido["pag_final_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
                 total_recebido += float(pedido["pag_final_valor"] or 0.0)
 
-            if pedido["pag_inicial_status"] == "Pendente" and self._esta_no_periodo(pag_ini_data, inicio, fim):
+            if pedido["pag_inicial_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_ini_data, inicio, fim):
                 a_receber += float(pedido["pag_inicial_valor"] or 0.0)
-            if pedido["pag_final_status"] == "Pendente" and self._esta_no_periodo(pag_fin_data, inicio, fim):
+            if pedido["pag_final_status"] == StatusPagamento.PENDENTE.value and self._esta_no_periodo(pag_fin_data, inicio, fim):
                 a_receber += float(pedido["pag_final_valor"] or 0.0)
+
+        itens_pedido = conn.execute(
+            """
+            SELECT
+                p.data_pedido,
+                pi.quantidade,
+                pi.preco_unitario_snapshot,
+                pr.custo_unitario
+            FROM pedido_item pi
+            JOIN pedido p ON p.id = pi.pedido_id
+            JOIN produto pr ON pr.id = pi.produto_id
+            """
+        ).fetchall()
+
+        for item in itens_pedido:
+            data_pedido = self._parse_data(item["data_pedido"])
+            if not self._esta_no_periodo(data_pedido, inicio, fim):
+                continue
+
+            quantidade = float(item["quantidade"] or 0.0)
+            preco_venda = float(item["preco_unitario_snapshot"] or 0.0)
+            custo_unitario = float(item["custo_unitario"] or 0.0)
+            lucro_total_vendas += (preco_venda - custo_unitario) * quantidade
 
         despesas = conn.execute(
             """
@@ -63,11 +90,11 @@ class DashboardService:
             status = despesa["status"]
             categoria = despesa["categoria"]
 
-            if status == "Pago":
+            if status == StatusPagamento.PAGO.value:
                 despesas_pagas += valor
-                if categoria in ("Insumos", "Investimentos"):
+                if categoria in (CategoriaDespesa.INSUMOS.value, CategoriaDespesa.INVESTIMENTOS.value):
                     total_investido += valor
-            elif status == "Pendente":
+            elif status == StatusPagamento.PENDENTE.value:
                 falta_pagar += valor
         
         # Cálculos finais
@@ -80,6 +107,7 @@ class DashboardService:
             a_receber=a_receber,
             saldo_previsto=saldo_previsto,
             total_investido=total_investido,
+            lucro_total_vendas=lucro_total_vendas,
         )
 
     def get_faturamento_vs_despesas_mensal(self, data_inicio: str = "", data_fim: str = "") -> list[dict]:
@@ -128,13 +156,13 @@ class DashboardService:
 
         for rendimento in rendimentos:
             data_ini = self._parse_data(rendimento["pag_inicial_data"])
-            if rendimento["pag_inicial_status"] == "Recebido" and self._esta_no_periodo(data_ini, inicio, fim):
+            if rendimento["pag_inicial_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(data_ini, inicio, fim):
                 chave = data_ini.strftime("%Y-%m") if data_ini else None
                 if chave in serie:
                     serie[chave]["faturamento"] += float(rendimento["pag_inicial_valor"] or 0.0)
 
             data_fin = self._parse_data(rendimento["pag_final_data"])
-            if rendimento["pag_final_status"] == "Recebido" and self._esta_no_periodo(data_fin, inicio, fim):
+            if rendimento["pag_final_status"] == StatusPagamento.RECEBIDO.value and self._esta_no_periodo(data_fin, inicio, fim):
                 chave = data_fin.strftime("%Y-%m") if data_fin else None
                 if chave in serie:
                     serie[chave]["faturamento"] += float(rendimento["pag_final_valor"] or 0.0)
@@ -148,7 +176,7 @@ class DashboardService:
 
         for despesa in despesas:
             data_despesa = self._parse_data(despesa["data"])
-            if despesa["status"] != "Pago" or not self._esta_no_periodo(data_despesa, inicio, fim):
+            if despesa["status"] != StatusPagamento.PAGO.value or not self._esta_no_periodo(data_despesa, inicio, fim):
                 continue
 
             chave = data_despesa.strftime("%Y-%m") if data_despesa else None
@@ -182,9 +210,9 @@ class DashboardService:
             return []
 
         totais = {
-            "Insumos": 0.0,
-            "Investimentos": 0.0,
-            "Outros": 0.0,
+            CategoriaDespesa.INSUMOS.value: 0.0,
+            CategoriaDespesa.INVESTIMENTOS.value: 0.0,
+            CategoriaDespesa.OUTROS.value: 0.0,
         }
         total_geral = 0.0
 
@@ -197,13 +225,13 @@ class DashboardService:
 
         for despesa in despesas:
             data_despesa = self._parse_data(despesa["data"])
-            if despesa["status"] != "Pago" or not self._esta_no_periodo(data_despesa, inicio, fim):
+            if despesa["status"] != StatusPagamento.PAGO.value or not self._esta_no_periodo(data_despesa, inicio, fim):
                 continue
 
             valor = float(despesa["valor"] or 0.0)
-            categoria = despesa["categoria"] or "Outros"
+            categoria = despesa["categoria"] or CategoriaDespesa.OUTROS.value
             if categoria not in totais:
-                categoria = "Outros"
+                categoria = CategoriaDespesa.OUTROS.value
 
             totais[categoria] += valor
             total_geral += valor
@@ -212,7 +240,7 @@ class DashboardService:
             return []
 
         resultado = []
-        for categoria in ("Insumos", "Investimentos", "Outros"):
+        for categoria in (CategoriaDespesa.INSUMOS.value, CategoriaDespesa.INVESTIMENTOS.value, CategoriaDespesa.OUTROS.value):
             valor = totais[categoria]
             if valor <= 0:
                 continue
@@ -246,12 +274,10 @@ class DashboardService:
         if not valor:
             return None
 
-        for formato in ("%d/%m/%Y", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(valor, formato)
-            except ValueError:
-                continue
-        return None
+        try:
+            return datetime.strptime(normalizar_data_iso(valor), "%Y-%m-%d")
+        except ValueError:
+            return None
 
     def _esta_no_periodo(self, data: datetime | None, inicio: datetime | None, fim: datetime | None) -> bool:
         if inicio is None and fim is None:
